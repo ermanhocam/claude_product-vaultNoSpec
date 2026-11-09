@@ -13,8 +13,15 @@ afterEach(() => {
 });
 
 describe('POST /api/products (Requirement 1)', () => {
+  /** Creating a product needs a login; sends a POST with a valid token. */
+  const createAs = async (body: unknown) => {
+    // Resolve the header first: supertest requests must not be left pending across an await.
+    const auth = await ctx.authHeader();
+    return ctx.api.post('/api/products').set(auth).send(body);
+  };
+
   it('creates a product and returns it with a generated id', async () => {
-    const res = await ctx.api.post('/api/products').send({ name: 'Espresso Machine' });
+    const res = await createAs({ name: 'Espresso Machine' });
 
     expect(res.status).toBe(201);
     expect(res.headers['content-type']).toMatch(/application\/json/);
@@ -26,6 +33,15 @@ describe('POST /api/products (Requirement 1)', () => {
     });
   });
 
+  it('rejects creation without a token with 401 and creates nothing', async () => {
+    const res = await ctx.api.post('/api/products').send({ name: 'Espresso Machine' });
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Authentication required' });
+    const list = await ctx.api.get('/api/products').expect(200);
+    expect(list.body).toEqual([]);
+  });
+
   it('persists the product so it can be retrieved', async () => {
     const created = await ctx.createProduct('Headphones');
     const res = await ctx.api.get(`/api/products/${created.id}`).expect(200);
@@ -33,7 +49,8 @@ describe('POST /api/products (Requirement 1)', () => {
   });
 
   it('trims surrounding whitespace from the name', async () => {
-    const res = await ctx.api.post('/api/products').send({ name: '   Kettle  ' }).expect(201);
+    const res = await createAs({ name: '   Kettle  ' });
+    expect(res.status).toBe(201);
     expect(res.body.name).toBe('Kettle');
   });
 
@@ -43,37 +60,38 @@ describe('POST /api/products (Requirement 1)', () => {
     ['a missing name', {}],
     ['a null name', { name: null }],
   ])('rejects %s with a "name is required" error', async (_label, body) => {
-    const res = await ctx.api.post('/api/products').send(body);
+    const res = await createAs(body);
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Product name is required' });
   });
 
   it('rejects a non-string name', async () => {
-    const res = await ctx.api.post('/api/products').send({ name: 42 });
+    const res = await createAs({ name: 42 });
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Product name must be a string' });
   });
 
   it('accepts a name of exactly 200 characters', async () => {
     const name = 'a'.repeat(200);
-    const res = await ctx.api.post('/api/products').send({ name }).expect(201);
+    const res = await createAs({ name });
+    expect(res.status).toBe(201);
     expect(res.body.name).toBe(name);
   });
 
   it('rejects a name longer than 200 characters with a maximum length error', async () => {
-    const res = await ctx.api.post('/api/products').send({ name: 'a'.repeat(201) });
+    const res = await createAs({ name: 'a'.repeat(201) });
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Product name must not exceed 200 characters' });
   });
 
   it('counts characters, not UTF-16 code units, when checking length', async () => {
     const name = '📦'.repeat(200);
-    await ctx.api.post('/api/products').send({ name }).expect(201);
-    await ctx.api.post('/api/products').send({ name: name + '📦' }).expect(400);
+    expect((await createAs({ name })).status).toBe(201);
+    expect((await createAs({ name: name + '📦' })).status).toBe(400);
   });
 
   it('does not create a product when validation fails', async () => {
-    await ctx.api.post('/api/products').send({ name: '' }).expect(400);
+    expect((await createAs({ name: '' })).status).toBe(400);
     const res = await ctx.api.get('/api/products').expect(200);
     expect(res.body).toEqual([]);
   });

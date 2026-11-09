@@ -21,7 +21,8 @@ export function createProductsRouter(
     res.json(products.findAll());
   });
 
-  router.post('/', (req, res) => {
+  // Creating a product needs a login, like deletion and note creation below.
+  router.post('/', requireAuth, (req, res) => {
     const product = products.create(parseProductName(req.body));
     res.status(201).location(`/api/products/${product.id}`).json(product);
   });

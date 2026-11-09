@@ -30,7 +30,9 @@ export function createTestContext() {
   };
 
   const createProduct = async (name: string) => {
-    const res = await api.post('/api/products').send({ name }).expect(201);
+    // Creating a product now requires a login; send a valid token.
+    const auth = await authHeader();
+    const res = await api.post('/api/products').set(auth).send({ name }).expect(201);
     return res.body as { id: number; name: string; createdAt: string };
   };
 

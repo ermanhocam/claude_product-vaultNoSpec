@@ -68,7 +68,7 @@ export function ProductListPage() {
         )}
       </div>
 
-      <ProductForm onCreate={handleCreate} />
+      {user && <ProductForm onCreate={handleCreate} />}
 
       {deleted && (
         <p ref={deletedNoticeRef} className="form-notice" role="status" tabIndex={-1}>
@@ -92,7 +92,11 @@ export function ProductListPage() {
 
       {state.status === 'success' &&
         (state.data.length === 0 ? (
-          <EmptyState>No products yet. Add your first one above to start keeping notes on it.</EmptyState>
+          <EmptyState>
+            {user
+              ? 'No products yet. Add your first one above to start keeping notes on it.'
+              : 'No products yet. Log in to add the first one.'}
+          </EmptyState>
         ) : (
           <ul className="product-grid">
             {state.data.map((product) => (

@@ -89,8 +89,10 @@ describe('Product list (Requirement 2)', () => {
 });
 
 describe('Creating a product (Requirement 1)', () => {
+  // Adding a product needs a login, so each test signs in before rendering.
   it('adds the new product to the top of the list without reloading the page', async () => {
     backend.seed({ products: [older] });
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText('Moka pot');
 
@@ -106,6 +108,7 @@ describe('Creating a product (Requirement 1)', () => {
   });
 
   it('adds the first product, replacing the empty state', async () => {
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
@@ -115,7 +118,17 @@ describe('Creating a product (Requirement 1)', () => {
     expect(screen.queryByText(/no products yet/i)).not.toBeInTheDocument();
   });
 
+  it('hides the add-product form from visitors who are not logged in', async () => {
+    renderApp('/');
+    await screen.findByText(/no products yet/i);
+
+    expect(screen.queryByLabelText('Product name')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add product' })).not.toBeInTheDocument();
+    expect(screen.getByText(/log in to add the first one/i)).toBeInTheDocument();
+  });
+
   it('requires a name before sending anything to the backend', async () => {
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
@@ -128,6 +141,7 @@ describe('Creating a product (Requirement 1)', () => {
   });
 
   it('rejects names over 200 characters before sending them', async () => {
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
@@ -147,6 +161,7 @@ describe('Creating a product (Requirement 1)', () => {
         HttpResponse.json({ error: 'Product name must not exceed 200 characters' }, { status: 400 }),
       ),
     );
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
@@ -164,6 +179,7 @@ describe('Creating a product (Requirement 1)', () => {
         return HttpResponse.json(older, { status: 201 });
       }),
     );
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
