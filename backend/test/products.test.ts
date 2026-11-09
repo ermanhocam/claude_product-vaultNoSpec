@@ -129,6 +129,316 @@ describe('GET /api/products (Requirement 2)', () => {
   });
 });
 
+describe('GET /api/products/search (public product search)', () => {
+  it('returns all products newest first when no query is given', async () => {
+    const first = await ctx.createProduct('Moka pot');
+    const second = await ctx.createProduct('Kettle');
+
+    const res = await ctx.api.get('/api/products/search');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body).toEqual([second, first]);
+  });
+
+  it('returns all products for a blank or whitespace-only query', async () => {
+    const product = await ctx.createProduct('Headphones');
+    for (const q of ['', '   ']) {
+      const res = await ctx.api.get('/api/products/search').query({ q }).expect(200);
+      expect(res.body).toEqual([product]);
+    }
+  });
+
+  it('matches by case-insensitive substring of the name', async () => {
+    const moka = await ctx.createProduct('Moka Pot');
+    await ctx.createProduct('Kettle');
+
+    for (const q of ['moka', 'MOKA', 'ka po', 'Pot']) {
+      const res = await ctx.api.get('/api/products/search').query({ q }).expect(200);
+      expect(res.body).toEqual([moka]);
+    }
+  });
+
+  it('requires every whitespace-separated term to match, in any order', async () => {
+    const red = await ctx.createProduct('Red wool blanket');
+    await ctx.createProduct('Blue cotton blanket');
+
+    const match = await ctx.api.get('/api/products/search').query({ q: 'blanket red' }).expect(200);
+    expect(match.body).toEqual([red]);
+
+    const none = await ctx.api.get('/api/products/search').query({ q: 'red cotton' }).expect(200);
+    expect(none.body).toEqual([]);
+  });
+
+  it('returns matches newest first', async () => {
+    const older = await ctx.createProduct('Coffee grinder');
+    const newer = await ctx.createProduct('Coffee maker');
+
+    const res = await ctx.api.get('/api/products/search').query({ q: 'coffee' }).expect(200);
+    expect(res.body).toEqual([newer, older]);
+  });
+
+  it('returns an empty array when nothing matches', async () => {
+    await ctx.createProduct('Moka pot');
+    const res = await ctx.api.get('/api/products/search').query({ q: 'nonexistent' }).expect(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('treats LIKE wildcards as literal characters', async () => {
+    const literal = await ctx.createProduct('50% off deal');
+    await ctx.createProduct('Fifty off deal');
+
+    // "%" would match everything if not escaped; here it must match the literal percent sign.
+    const res = await ctx.api.get('/api/products/search').query({ q: '50%' }).expect(200);
+    expect(res.body).toEqual([literal]);
+
+    // "_" is the single-character wildcard in LIKE; escaped, it matches a literal underscore only.
+    const underscore = await ctx.createProduct('a_b');
+    const res2 = await ctx.api.get('/api/products/search').query({ q: 'a_b' }).expect(200);
+    expect(res2.body).toEqual([underscore]);
+  });
+
+  it('is public: works without a token', async () => {
+    const product = await ctx.createProduct('Public item');
+    const res = await ctx.api.get('/api/products/search').query({ q: 'public' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([product]);
+  });
+
+  it('counts characters, not UTF-16 code units, for the length limit', async () => {
+    const ok = await ctx.api.get('/api/products/search').query({ q: '📦'.repeat(200) });
+    expect(ok.status).toBe(200);
+
+    const tooLong = await ctx.api.get('/api/products/search').query({ q: '📦'.repeat(201) });
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body).toEqual({ error: 'Search query must not exceed 200 characters' });
+  });
+
+  it('rejects a repeated q param (array) with 400', async () => {
+    const res = await ctx.api.get('/api/products/search?q=one&q=two');
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Search query must be a single string' });
+  });
+});
+
+describe('GET /api/products/search advanced filters (logged-in only)', () => {
+  /** Sets a product's creation timestamp directly so date-range tests are deterministic. */
+  const setCreatedAt = (productId: number, iso: string) =>
+    ctx.db.prepare('UPDATE products SET created_at = ? WHERE id = ?').run(iso, productId);
+
+  /** Creates a note on `productId` authored by the user behind `auth`. */
+  const createNoteAs = async (productId: number, content: string, auth: { Authorization: string }) => {
+    const res = await ctx.api.post(`/api/products/${productId}/notes`).set(auth).send({ content }).expect(201);
+    return res.body as { id: number; author: number };
+  };
+
+  describe('access control', () => {
+    it.each([
+      ['from', { from: '2026-01-01' }],
+      ['to', { to: '2026-12-31' }],
+      ['noteText', { noteText: 'anything' }],
+      ['author', { author: 'someone' }],
+    ])('rejects the %s filter without a token with 401', async (_label, query) => {
+      await ctx.createProduct('Moka pot');
+      const res = await ctx.api.get('/api/products/search').query(query);
+      expect(res.status).toBe(401);
+      expect(res.body).toEqual({ error: 'Log in to search by date, note text or author' });
+    });
+
+    it('still allows the public name filter without a token', async () => {
+      const product = await ctx.createProduct('Moka pot');
+      const res = await ctx.api.get('/api/products/search').query({ q: 'moka' }).expect(200);
+      expect(res.body).toEqual([product]);
+    });
+
+    it('rejects an invalid token on an advanced filter with 401', async () => {
+      await ctx.createProduct('Moka pot');
+      const res = await ctx.api
+        .get('/api/products/search')
+        .query({ noteText: 'x' })
+        .set({ Authorization: 'Bearer not-a-real-token' });
+      expect(res.status).toBe(401);
+      expect(res.body).toEqual({ error: 'Invalid token' });
+    });
+
+    it('allows the advanced filters with a valid token', async () => {
+      const auth = await ctx.authHeader();
+      const product = await ctx.createProduct('Moka pot');
+      setCreatedAt(product.id, '2026-06-15T12:00:00.000Z');
+
+      const res = await ctx.api.get('/api/products/search').query({ from: '2026-01-01' }).set(auth).expect(200);
+      expect(res.body).toEqual([{ ...product, createdAt: '2026-06-15T12:00:00.000Z' }]);
+    });
+  });
+
+  describe('creation-date range', () => {
+    it('includes products on the boundary dates (inclusive from and to)', async () => {
+      const auth = await ctx.authHeader();
+      const early = await ctx.createProduct('Early');
+      const onFrom = await ctx.createProduct('On from');
+      const onTo = await ctx.createProduct('On to');
+      const late = await ctx.createProduct('Late');
+      setCreatedAt(early.id, '2026-09-30T23:59:59.999Z');
+      setCreatedAt(onFrom.id, '2026-10-01T00:00:00.000Z');
+      setCreatedAt(onTo.id, '2026-10-31T23:59:59.999Z');
+      setCreatedAt(late.id, '2026-11-01T00:00:00.000Z');
+
+      const res = await ctx.api
+        .get('/api/products/search')
+        .query({ from: '2026-10-01', to: '2026-10-31' })
+        .set(auth)
+        .expect(200);
+
+      expect(res.body.map((p: { name: string }) => p.name)).toEqual(['On to', 'On from']);
+    });
+
+    it('filters with only a from date (open-ended upper bound)', async () => {
+      const auth = await ctx.authHeader();
+      const old = await ctx.createProduct('Old');
+      const recent = await ctx.createProduct('Recent');
+      setCreatedAt(old.id, '2025-01-01T00:00:00.000Z');
+      setCreatedAt(recent.id, '2026-10-20T00:00:00.000Z');
+
+      const res = await ctx.api.get('/api/products/search').query({ from: '2026-01-01' }).set(auth).expect(200);
+      expect(res.body.map((p: { name: string }) => p.name)).toEqual(['Recent']);
+    });
+
+    it('rejects a malformed date with 400', async () => {
+      const auth = await ctx.authHeader();
+      const res = await ctx.api.get('/api/products/search').query({ from: '20-10-2026' }).set(auth);
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'From date must be a date in YYYY-MM-DD format' });
+    });
+
+    it('rejects an impossible calendar date with 400', async () => {
+      const auth = await ctx.authHeader();
+      const res = await ctx.api.get('/api/products/search').query({ to: '2026-02-30' }).set(auth);
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'To date is not a valid date' });
+    });
+
+    it('rejects a from date later than the to date with 400', async () => {
+      const auth = await ctx.authHeader();
+      const res = await ctx.api
+        .get('/api/products/search')
+        .query({ from: '2026-10-31', to: '2026-10-01' })
+        .set(auth);
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'From date must not be after the to date' });
+    });
+  });
+
+  describe('note text', () => {
+    it('returns products that have a note containing the text (case-insensitive)', async () => {
+      const auth = await ctx.authHeader();
+      const withNote = await ctx.createProduct('Camera');
+      const other = await ctx.createProduct('Desk');
+      await createNoteAs(withNote.id, 'Great LOW-light performance', auth);
+
+      const res = await ctx.api.get('/api/products/search').query({ noteText: 'low-light' }).set(auth).expect(200);
+      expect(res.body.map((p: { name: string }) => p.name)).toEqual(['Camera']);
+      expect(res.body.some((p: { name: string }) => p.name === other.name)).toBe(false);
+    });
+
+    it('returns each matching product once even with several matching notes', async () => {
+      const auth = await ctx.authHeader();
+      const product = await ctx.createProduct('Headphones');
+      await createNoteAs(product.id, 'Comfortable fit', auth);
+      await createNoteAs(product.id, 'Comfortable earcups', auth);
+
+      const res = await ctx.api.get('/api/products/search').query({ noteText: 'comfortable' }).set(auth).expect(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].name).toBe('Headphones');
+    });
+
+    it('returns nothing when no note contains the text', async () => {
+      const auth = await ctx.authHeader();
+      const product = await ctx.createProduct('Kettle');
+      await createNoteAs(product.id, 'Boils fast', auth);
+
+      const res = await ctx.api.get('/api/products/search').query({ noteText: 'slow' }).set(auth).expect(200);
+      expect(res.body).toEqual([]);
+    });
+  });
+
+  describe('note author', () => {
+    it('returns products that have a note by the named user', async () => {
+      const auth = await ctx.authHeader();
+      // A second user with their own note on a different product.
+      await ctx.register('bob');
+      const bobToken = await ctx.login('bob');
+      const bobAuth = { Authorization: `Bearer ${bobToken}` };
+
+      const aliceProduct = await ctx.createProduct('Alice product');
+      const bobProduct = await ctx.createProduct('Bob product');
+      await createNoteAs(aliceProduct.id, 'tester note', auth); // default user is "tester"
+      await createNoteAs(bobProduct.id, 'bob note', bobAuth);
+
+      const res = await ctx.api.get('/api/products/search').query({ author: 'tester' }).set(auth).expect(200);
+      expect(res.body.map((p: { name: string }) => p.name)).toEqual(['Alice product']);
+    });
+
+    it('matches the author username case-insensitively', async () => {
+      const auth = await ctx.authHeader();
+      const product = await ctx.createProduct('Widget');
+      await createNoteAs(product.id, 'a note', auth);
+
+      const res = await ctx.api.get('/api/products/search').query({ author: 'TESTER' }).set(auth).expect(200);
+      expect(res.body.map((p: { name: string }) => p.name)).toEqual(['Widget']);
+    });
+
+    it('returns nothing for a user who has written no notes', async () => {
+      const auth = await ctx.authHeader();
+      const product = await ctx.createProduct('Widget');
+      await createNoteAs(product.id, 'a note', auth);
+
+      const res = await ctx.api.get('/api/products/search').query({ author: 'nobody' }).set(auth).expect(200);
+      expect(res.body).toEqual([]);
+    });
+  });
+
+  describe('combined filters', () => {
+    it('applies name, note text and author together (all must match)', async () => {
+      const auth = await ctx.authHeader();
+      await ctx.register('bob');
+      const bobAuth = { Authorization: `Bearer ${await ctx.login('bob')}` };
+
+      const match = await ctx.createProduct('Moka pot');
+      const wrongAuthor = await ctx.createProduct('Moka express');
+      const wrongName = await ctx.createProduct('Kettle');
+      await createNoteAs(match.id, 'great espresso', auth);
+      await createNoteAs(wrongAuthor.id, 'great espresso', bobAuth);
+      await createNoteAs(wrongName.id, 'great espresso', auth);
+
+      const res = await ctx.api
+        .get('/api/products/search')
+        .query({ q: 'moka', noteText: 'espresso', author: 'tester' })
+        .set(auth)
+        .expect(200);
+
+      expect(res.body.map((p: { name: string }) => p.name)).toEqual(['Moka pot']);
+    });
+
+    it('combines a date range with a note-text filter', async () => {
+      const auth = await ctx.authHeader();
+      const inRange = await ctx.createProduct('In range');
+      const outOfRange = await ctx.createProduct('Out of range');
+      setCreatedAt(inRange.id, '2026-10-15T00:00:00.000Z');
+      setCreatedAt(outOfRange.id, '2026-12-15T00:00:00.000Z');
+      await createNoteAs(inRange.id, 'durable build', auth);
+      await createNoteAs(outOfRange.id, 'durable build', auth);
+
+      const res = await ctx.api
+        .get('/api/products/search')
+        .query({ from: '2026-10-01', to: '2026-10-31', noteText: 'durable' })
+        .set(auth)
+        .expect(200);
+
+      expect(res.body.map((p: { name: string }) => p.name)).toEqual(['In range']);
+    });
+  });
+});
+
 describe('GET /api/products/:id (Requirement 3)', () => {
   it('returns the product with its notes newest first', async () => {
     const product = await ctx.createProduct('Camera');

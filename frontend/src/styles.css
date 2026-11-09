@@ -893,3 +893,39 @@ a {
     animation-duration: 2.4s;
   }
 }
+
+/* ---------- Advanced product search ---------- */
+
+.search-form__advanced {
+  margin-top: 0.875rem;
+}
+
+.search-form__advanced > .text-button {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.search-form__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.875rem 1rem;
+  margin: 0.875rem 0 0;
+  padding: 1rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.search-form__fields .field + .field {
+  margin-top: 0; /* the grid handles spacing between fields here */
+}
+
+.search-form__fields label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.search-form__fields .input {
+  width: 100%;
+}

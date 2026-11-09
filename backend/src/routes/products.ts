@@ -1,12 +1,13 @@
 import { type Request, type RequestHandler, Router } from 'express';
 import type { NoteRepository, Product, ProductRepository } from '../db/repositories.js';
-import { notFound } from '../errors.js';
-import { parseId, parseNoteContent, parseProductName } from '../validation.js';
+import { notFound, unauthorized } from '../errors.js';
+import { hasAdvancedCriteria, parseId, parseNoteContent, parseProductName, parseSearchCriteria } from '../validation.js';
 
 export function createProductsRouter(
   products: ProductRepository,
   notes: NoteRepository,
   requireAuth: RequestHandler,
+  optionalAuth: RequestHandler,
 ): Router {
   const router = Router();
 
@@ -19,6 +20,18 @@ export function createProductsRouter(
 
   router.get('/', (_req, res) => {
     res.json(products.findAll());
+  });
+
+  // Name search (`q`) is public, like the listing above. The advanced filters — creation-date
+  // range, note text and note author — are only for logged-in users, so `optionalAuth` attaches
+  // the user when a token is present and the handler rejects advanced filters for anonymous
+  // callers. Declared before `/:productId` so the literal "search" segment isn't a product id.
+  router.get('/search', optionalAuth, (req, res) => {
+    const criteria = parseSearchCriteria(req.query);
+    if (!req.user && hasAdvancedCriteria(criteria)) {
+      throw unauthorized('Log in to search by date, note text or author');
+    }
+    res.json(products.search(criteria));
   });
 
   // Creating a product needs a login, like deletion and note creation below.

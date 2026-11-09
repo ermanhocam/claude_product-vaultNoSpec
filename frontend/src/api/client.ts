@@ -1,5 +1,5 @@
 import { tokenStore } from '../auth/session';
-import type { Note, Product, ProductWithNotes } from '../types';
+import type { Note, Product, ProductSearchCriteria, ProductWithNotes } from '../types';
 
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3001').replace(/\/+$/, '');
 
@@ -64,6 +64,16 @@ export const api = {
     request<{ token: string }>('/auth/login', json('POST', { username, password })),
 
   listProducts: () => request<Product[]>('/products'),
+
+  searchProducts: (criteria: ProductSearchCriteria) => {
+    const params = new URLSearchParams();
+    if (criteria.query) params.set('q', criteria.query);
+    if (criteria.from) params.set('from', criteria.from);
+    if (criteria.to) params.set('to', criteria.to);
+    if (criteria.noteText) params.set('noteText', criteria.noteText);
+    if (criteria.author) params.set('author', criteria.author);
+    return request<Product[]>(`/products/search?${params.toString()}`);
+  },
 
   createProduct: (name: string) => request<Product>('/products', json('POST', { name })),
 

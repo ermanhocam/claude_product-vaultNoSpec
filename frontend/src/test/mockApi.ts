@@ -114,6 +114,42 @@ export const handlers = [
 
   http.get(apiUrl('/products'), () => HttpResponse.json([...backend.products].sort(newestFirst))),
 
+  // Mirrors the backend's search: name search (`q`) is public; the date range, note-text and
+  // author filters require a login. Every active filter must match; results are newest first.
+  http.get(apiUrl('/products/search'), ({ request }) => {
+    const params = new URL(request.url).searchParams;
+    const query = params.get('q')?.trim() ?? '';
+    const from = params.get('from') ?? '';
+    const to = params.get('to') ?? '';
+    const noteText = params.get('noteText')?.trim().toLowerCase() ?? '';
+    const author = params.get('author')?.trim().toLowerCase() ?? '';
+
+    const usesAdvanced = Boolean(from || to || noteText || author);
+    if (usesAdvanced) {
+      const problem = authError(request.headers.get('Authorization'));
+      if (problem) return unauthorized(problem);
+    }
+
+    const terms = query ? query.split(/\s+/).map((t) => t.toLowerCase()) : [];
+    const matches = backend.products.filter((p) => {
+      const name = p.name.toLowerCase();
+      if (!terms.every((term) => name.includes(term))) return false;
+      const day = p.createdAt.slice(0, 10);
+      if (from && day < from) return false;
+      if (to && day > to) return false;
+      const productNotes = backend.notes.filter((n) => n.productId === p.id);
+      if (noteText && !productNotes.some((n) => n.content.toLowerCase().includes(noteText))) return false;
+      if (author) {
+        const authorIds = backend.users
+          .filter((u) => u.username.toLowerCase() === author)
+          .map((u) => u.id);
+        if (!productNotes.some((n) => n.author !== null && authorIds.includes(n.author))) return false;
+      }
+      return true;
+    });
+    return HttpResponse.json(matches.sort(newestFirst));
+  }),
+
   http.post(apiUrl('/products'), async ({ request }) => {
     const { name } = (await request.json()) as { name: string };
     const product: Product = {
