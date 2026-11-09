@@ -1,0 +1,26 @@
+{
+  "name": "product-vault",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal product notes: React frontend, Express API and an embedded SQLite database.",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "concurrently --kill-others-on-fail --names api,web --prefix-colors cyan,magenta \"npm:start:backend\" \"npm:start:frontend\"",
+    "start:backend": "npm run start --workspace backend",
+    "start:frontend": "npm run start --workspace frontend",
+    "dev": "concurrently --kill-others-on-fail --names api,web --prefix-colors cyan,magenta \"npm run dev --workspace backend\" \"npm run dev --workspace frontend\"",
+    "build": "npm run build --workspace frontend",
+    "test": "npm run test --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "verify": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}
