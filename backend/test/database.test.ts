@@ -2,7 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type Database, IN_MEMORY, isUniqueConstraintError, openDatabase } from '../src/db/database.js';
+import {
+  type Database,
+  IN_MEMORY,
+  isUniqueConstraintError,
+  migrateNotesAuthor,
+  openDatabase,
+} from '../src/db/database.js';
 import { createNoteRepository, createProductRepository, createUserRepository } from '../src/db/repositories.js';
 import { ISO_TIMESTAMP } from './helpers.js';
 
@@ -40,7 +46,7 @@ describe('Embedded SQLite database (Requirement 7)', () => {
     const path = tempDbPath();
     const first = open(path);
     const product = createProductRepository(first).create('Persisted');
-    createNoteRepository(first).create(product.id, 'Still here');
+    createNoteRepository(first).create(product.id, 'Still here', null as unknown as number);
     first.close();
 
     const second = open(path); // re-running the schema must be a no-op
@@ -74,14 +80,16 @@ describe('Embedded SQLite database (Requirement 7)', () => {
 
   it('rejects notes that reference a non-existent product', () => {
     const db = open();
-    expect(() => createNoteRepository(db).create(12345, 'Orphan')).toThrow(/FOREIGN KEY constraint failed/);
+    expect(() => createNoteRepository(db).create(12345, 'Orphan', null as unknown as number)).toThrow(
+      /FOREIGN KEY constraint failed/,
+    );
   });
 
   it('prevents deleting a product while it has notes', () => {
     const db = open();
     const product = createProductRepository(db).create('Guarded');
     const notes = createNoteRepository(db);
-    const note = notes.create(product.id, 'Blocking note');
+    const note = notes.create(product.id, 'Blocking note', null as unknown as number);
 
     const deleteProduct = db.prepare('DELETE FROM products WHERE id = ?');
     expect(() => deleteProduct.run(product.id)).toThrow(/FOREIGN KEY constraint failed/);
@@ -172,6 +180,85 @@ describe('Users table (Requirement 18)', () => {
   });
 });
 
+describe('Notes author column and migration (notes-edit-auth, Requirements 3.1, 3.4, 4.2)', () => {
+  const noteColumns = (db: Database) =>
+    db
+      .prepare('PRAGMA table_info(notes)')
+      .all()
+      .map(({ name, type, notnull, pk }) => ({ name, type, notnull, pk }));
+
+  const foreignKeys = (db: Database) =>
+    db
+      .prepare('PRAGMA foreign_key_list(notes)')
+      .all()
+      .map(({ table, from, to }) => ({ table, from, to }));
+
+  it('Smoke: fresh databases have an author_id column referencing users(id) (Req 3.1)', () => {
+    const db = open();
+    const author = noteColumns(db).find((column) => column.name === 'author_id');
+    // Nullable foreign key: present, not NOT NULL, not part of the primary key.
+    expect(author).toEqual({ name: 'author_id', type: 'INTEGER', notnull: 0, pk: 0 });
+    expect(foreignKeys(db)).toContainEqual({ table: 'users', from: 'author_id', to: 'id' });
+  });
+
+  it('Integration: migrateNotesAuthor backfills a legacy notes table, preserves rows, and re-runs as a no-op (Req 3.4)', () => {
+    const path = tempDbPath();
+    // A connection shaped like a pre-feature database: notes has no author_id column.
+    const legacy = open(path);
+    legacy.exec('DROP TABLE notes');
+    legacy.exec(`
+      CREATE TABLE notes (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL REFERENCES products (id) ON DELETE RESTRICT,
+        content    TEXT    NOT NULL CHECK (length(content) BETWEEN 1 AND 10000),
+        created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+    `);
+    legacy.prepare('INSERT INTO products (id, name) VALUES (1, ?)').run('Legacy product');
+    legacy.prepare('INSERT INTO notes (id, product_id, content) VALUES (?, ?, ?)').run(1, 1, 'First legacy note');
+    legacy.prepare('INSERT INTO notes (id, product_id, content) VALUES (?, ?, ?)').run(2, 1, 'Second legacy note');
+    expect(noteColumns(legacy).some((column) => column.name === 'author_id')).toBe(false);
+
+    migrateNotesAuthor(legacy);
+
+    // Column was added as a nullable FK to users(id).
+    expect(noteColumns(legacy).find((column) => column.name === 'author_id')).toEqual({
+      name: 'author_id',
+      type: 'INTEGER',
+      notnull: 0,
+      pk: 0,
+    });
+    expect(foreignKeys(legacy)).toContainEqual({ table: 'users', from: 'author_id', to: 'id' });
+
+    // Every pre-existing row survives with its id and content intact and author_id = NULL.
+    const rows = legacy.prepare('SELECT id, content, author_id FROM notes ORDER BY id').all();
+    expect(rows).toEqual([
+      { id: 1, content: 'First legacy note', author_id: null },
+      { id: 2, content: 'Second legacy note', author_id: null },
+    ]);
+
+    // Re-running the migration is a no-op: no throw, rows untouched.
+    expect(() => migrateNotesAuthor(legacy)).not.toThrow();
+    expect(legacy.prepare('SELECT id, content, author_id FROM notes ORDER BY id').all()).toEqual(rows);
+
+    // openDatabase runs the migration on startup; reopening the same file is also a no-op.
+    legacy.close();
+    openDbs.splice(openDbs.indexOf(legacy), 1);
+    const reopened = open(path);
+    expect(reopened.prepare('SELECT id, content, author_id FROM notes ORDER BY id').all()).toEqual(rows);
+  });
+
+  it('Example: a note with no recorded author stores author_id = NULL, the representation of author: null (Req 4.2)', () => {
+    const db = open();
+    db.prepare('INSERT INTO products (id, name) VALUES (1, ?)').run('P');
+    db.prepare('INSERT INTO notes (product_id, content) VALUES (?, ?)').run(1, 'Authorless note');
+    const row = db.prepare('SELECT author_id FROM notes WHERE content = ?').get('Authorless note') as {
+      author_id: number | null;
+    };
+    expect(row.author_id).toBeNull();
+  });
+});
+
 describe('Deleting a product (Requirement 19)', () => {
   const countProductRows = (db: Database, id: number) =>
     Number(db.prepare('SELECT COUNT(*) AS count FROM products WHERE id = ?').get(id)?.count);
@@ -186,8 +273,8 @@ describe('Deleting a product (Requirement 19)', () => {
     const products = createProductRepository(db);
     const notes = createNoteRepository(db);
     const product = products.create('Moka pot');
-    notes.create(product.id, 'First note');
-    notes.create(product.id, 'Second note');
+    notes.create(product.id, 'First note', null as unknown as number);
+    notes.create(product.id, 'Second note', null as unknown as number);
 
     expect(products.delete(product.id)).toBe(true);
     expect(countProductRows(db, product.id)).toBe(0);
@@ -202,8 +289,8 @@ describe('Deleting a product (Requirement 19)', () => {
     const products = createProductRepository(db);
     const notes = createNoteRepository(db);
     const product = products.create('Moka pot');
-    const first = notes.create(product.id, 'First note');
-    const second = notes.create(product.id, 'Second note');
+    const first = notes.create(product.id, 'First note', null as unknown as number);
+    const second = notes.create(product.id, 'Second note', null as unknown as number);
     db.exec(`
       CREATE TEMP TRIGGER fail_product_delete BEFORE DELETE ON products
       BEGIN SELECT RAISE(ABORT, 'forced failure'); END;
@@ -231,8 +318,8 @@ describe('Deleting a product (Requirement 19)', () => {
     const products = createProductRepository(db);
     const notes = createNoteRepository(db);
     const product = products.create('Moka pot');
-    const first = notes.create(product.id, 'First note');
-    const second = notes.create(product.id, 'Second note');
+    const first = notes.create(product.id, 'First note', null as unknown as number);
+    const second = notes.create(product.id, 'Second note', null as unknown as number);
     // RAISE(ROLLBACK) ends the transaction inside SQLite before the error reaches JavaScript.
     db.exec(`
       CREATE TEMP TRIGGER rollback_product_delete BEFORE DELETE ON products

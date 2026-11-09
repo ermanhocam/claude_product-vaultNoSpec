@@ -151,6 +151,7 @@ export const handlers = [
       id: backend.nextId(backend.notes),
       productId: product.id,
       content: content.trim(),
+      author: null,
       createdAt: new Date().toISOString(),
     };
     backend.notes.push(note);

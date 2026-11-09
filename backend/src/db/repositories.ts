@@ -10,6 +10,7 @@ export interface Note {
   id: number;
   productId: number;
   content: string;
+  author: number | null;
   createdAt: string;
 }
 
@@ -30,6 +31,7 @@ interface NoteRow {
   id: number;
   product_id: number;
   content: string;
+  author_id: number | null;
   created_at: string;
 }
 
@@ -50,6 +52,7 @@ const toNote = (row: NoteRow): Note => ({
   id: row.id,
   productId: row.product_id,
   content: row.content,
+  author: row.author_id,
   createdAt: row.created_at,
 });
 
@@ -61,7 +64,7 @@ const toUser = (row: UserRow): User => ({
 });
 
 const PRODUCT_COLUMNS = 'id, name, created_at';
-const NOTE_COLUMNS = 'id, product_id, content, created_at';
+const NOTE_COLUMNS = 'id, product_id, content, author_id, created_at';
 const USER_COLUMNS = 'id, username, password_hash, created_at';
 
 export type ProductRepository = ReturnType<typeof createProductRepository>;
@@ -103,7 +106,7 @@ export function createProductRepository(db: Database) {
 
 export function createNoteRepository(db: Database) {
   const insert = db.prepare(
-    `INSERT INTO notes (product_id, content) VALUES (?, ?) RETURNING ${NOTE_COLUMNS}`,
+    `INSERT INTO notes (product_id, content, author_id) VALUES (?, ?, ?) RETURNING ${NOTE_COLUMNS}`,
   );
   const selectById = db.prepare(`SELECT ${NOTE_COLUMNS} FROM notes WHERE id = ?`);
   const selectByProduct = db.prepare(
@@ -113,8 +116,8 @@ export function createNoteRepository(db: Database) {
   const remove = db.prepare('DELETE FROM notes WHERE id = ?');
 
   return {
-    create(productId: number, content: string): Note {
-      return toNote(insert.get(productId, content) as unknown as NoteRow);
+    create(productId: number, content: string, authorId: number): Note {
+      return toNote(insert.get(productId, content, authorId) as unknown as NoteRow);
     },
 
     findById(id: number): Note | undefined {

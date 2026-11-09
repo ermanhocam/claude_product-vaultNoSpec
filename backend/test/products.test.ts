@@ -244,7 +244,9 @@ describe('DELETE /api/products/:id (Requirement 19)', () => {
     expect(res.status).toBe(200);
 
     for (const note of [first, second]) {
-      const put = await ctx.api.put(`/api/notes/${note.id}`).send({ content: 'Edited afterwards' });
+      // Editing now requires a login; send a valid token so the lookup runs and reports the note gone.
+      const auth = await ctx.authHeader();
+      const put = await ctx.api.put(`/api/notes/${note.id}`).set(auth).send({ content: 'Edited afterwards' });
       expect(put.status).toBe(404);
       expect(put.body).toEqual({ error: 'Note not found' });
 
@@ -342,5 +344,100 @@ describe('DELETE /api/products/:id (Requirement 19)', () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(404);
     expect(second.body).toEqual({ error: 'Product not found' });
+  });
+});
+
+// Property tests run a minimum of 100 iterations each. Generators constrain inputs to the
+// valid space: note content that is non-empty after trimming and within the 5000-char limit.
+const PBT_RUNS = 100;
+
+const randomInt = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
+
+/** A note content string that survives `parseNoteContent`: 1..5000 chars after trimming. */
+const randomNoteContent = (): string => {
+  const length = randomInt(1, 120);
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\n\t 📦é';
+  const chars = [...alphabet];
+  let content = '';
+  for (let i = 0; i < length; i += 1) content += chars[randomInt(0, chars.length - 1)];
+  // Guarantee a non-whitespace character so the trimmed content is non-empty.
+  return `x${content}`;
+};
+
+/** Registers a fresh user (unique username) and returns its id and a bearer auth header. */
+const createAuthedUser = async (): Promise<{ id: number; auth: { Authorization: string } }> => {
+  const username = `user_${randomInt(0, 1e9)}_${createAuthedUser.counter++}`;
+  const user = await ctx.register(username);
+  const token = await ctx.login(username);
+  return { id: user.id, auth: { Authorization: `Bearer ${token}` } };
+};
+createAuthedUser.counter = 0;
+
+describe('POST /api/products/:id/notes records the author (notes-edit-auth)', () => {
+  // Feature: notes-edit-auth, Property 3: Note creation records the authenticated creator as author
+  // Validates: Requirements 3.2, 3.3
+  it('Property 3: note creation records the authenticated creator as author', async () => {
+    for (let i = 0; i < PBT_RUNS; i += 1) {
+      const product = await ctx.createProduct(`Product ${i}`);
+      const { id: userId, auth } = await createAuthedUser();
+      const content = randomNoteContent();
+
+      const res = await ctx.api.post(`/api/products/${product.id}/notes`).set(auth).send({ content }).expect(201);
+
+      // The created note's author is the authenticated creator (payload), ...
+      expect(res.body.author).toBe(userId);
+      // ... and it was persisted with that author id (storage).
+      const storedAuthor = ctx.db.prepare('SELECT author_id FROM notes WHERE id = ?').get(res.body.id) as {
+        author_id: number | null;
+      };
+      expect(storedAuthor.author_id).toBe(userId);
+    }
+  });
+
+  // Example asserting the created note payload includes `author` (Req 4.1).
+  it('includes the author on the created note payload (Req 4.1)', async () => {
+    const product = await ctx.createProduct('Keyboard');
+    const { id: userId, auth } = await createAuthedUser();
+
+    const res = await ctx.api
+      .post(`/api/products/${product.id}/notes`)
+      .set(auth)
+      .send({ content: 'Satisfying keypress' })
+      .expect(201);
+
+    expect(res.body).toEqual({
+      id: expect.any(Number),
+      productId: product.id,
+      content: 'Satisfying keypress',
+      author: userId,
+      createdAt: expect.stringMatching(ISO_TIMESTAMP),
+    });
+  });
+});
+
+describe('Note author round-trips through persistence and payload (notes-edit-auth)', () => {
+  // Feature: notes-edit-auth, Property 4: The author identifier round-trips through persistence and payload
+  // Validates: Requirements 3.3, 4.1
+  it('Property 4: the author identifier round-trips through persistence and payload', async () => {
+    for (let i = 0; i < PBT_RUNS; i += 1) {
+      const product = await ctx.createProduct(`Product ${i}`);
+      const { id: userId, auth } = await createAuthedUser();
+      const content = randomNoteContent();
+
+      // Create a note authored by this user.
+      const created = await ctx.api
+        .post(`/api/products/${product.id}/notes`)
+        .set(auth)
+        .send({ content })
+        .expect(201);
+
+      // Read it back through the notes listing and assert the author identifier survived unchanged.
+      const listed = await ctx.api.get(`/api/products/${product.id}/notes`).expect(200);
+      const readBack = listed.body.find((note: { id: number }) => note.id === created.body.id);
+
+      expect(readBack).toBeDefined();
+      expect(readBack.author).toBe(userId);
+      expect(readBack.author).toBe(created.body.author);
+    }
   });
 });

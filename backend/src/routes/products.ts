@@ -47,7 +47,7 @@ export function createProductsRouter(
   // Creating a note needs a login, checked before the product lookup like deletion above.
   router.post('/:productId/notes', requireAuth, (req: Request<{ productId: string }>, res) => {
     const product = requireProduct(req.params.productId);
-    const note = notes.create(product.id, parseNoteContent(req.body));
+    const note = notes.create(product.id, parseNoteContent(req.body), req.user!.id);
     res.status(201).location(`/api/notes/${note.id}`).json(note);
   });
 

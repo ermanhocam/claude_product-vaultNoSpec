@@ -1,0 +1,275 @@
+{
+  "pbtResults": {
+    "4.2 Write property test for author self-edit in `backend/test/notes.test.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1794215909392
+    },
+    "4.3 Write property test for non-author rejection in `backend/test/notes.test.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1794215910484
+    }
+  },
+  "executionHistory": {
+    "2.1 Add the author field to `Note`, `NoteRow`, `toNote`, and `NOTE_COLUMNS` in `backend/src/db/repositories.ts`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215247049
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215430599
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215503573
+      }
+    ],
+    "2.2 Add the `authorId` parameter to `create` in `backend/src/db/repositories.ts`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215247132
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215531237
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215698140
+      }
+    ],
+    "3. Add the `forbidden` 403 helper": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215247182
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215262440
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215420966
+      }
+    ],
+    "6. Checkpoint - backend gates and persistence": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215247231
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215944066
+      }
+    ],
+    "8. Expose `user.id` on the auth context": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215247283
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215431600
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215502398
+      }
+    ],
+    "9. Add the `author` field to the frontend Note type": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215247341
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215263263
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215421936
+      }
+    ],
+    "12. Final checkpoint - full suite": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215247398
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794216072960
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794216097425
+      }
+    ],
+    "1. Add author column and idempotent migration to the schema": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215260998
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215419618
+      }
+    ],
+    "1.1 Write schema + migration tests in `backend/test/database.test.ts`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215429204
+      }
+    ],
+    "7. Surface the numeric user id to the frontend session": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215520454
+      }
+    ],
+    "7.1 Write `decodeSession` tests in `frontend/src/auth/session.test.ts`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215532172
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215699264
+      }
+    ],
+    "2. Persist and surface the author in the note repository": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215698277
+      }
+    ],
+    "4. Enforce auth and ownership on `PUT /api/notes/:noteId`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215705497
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215930442
+      }
+    ],
+    "5. Record the creator on note creation": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215706814
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215936053
+      }
+    ],
+    "2.3 Write property test for author round-trip in `backend/test/products.test.ts`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215708026
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215937010
+      }
+    ],
+    "4.1 Write auth + ownership tests in `backend/test/notes.test.ts`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215931834
+      }
+    ],
+    "4.2 Write property test for author self-edit in `backend/test/notes.test.ts`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215933247
+      }
+    ],
+    "4.3 Write property test for non-author rejection in `backend/test/notes.test.ts`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215934643
+      }
+    ],
+    "5.1 Write property test for creation recording author in `backend/test/products.test.ts`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215938267
+      }
+    ],
+    "10. Gate the edit handler on the product detail page": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215945050
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794216066110
+      }
+    ],
+    "11. Make `onSave` optional and hide Edit in the note item": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794215946163
+      },
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794216068960
+      }
+    ],
+    "10.1 Write edit-control gating tests in `frontend/src/pages/ProductDetailPage.test.tsx`": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794216067525
+      }
+    ],
+    "11.1 Write `NoteItem` Edit-visibility tests": [
+      {
+        "executionId": "f639c62c-1514-4dbf-b083-73bcff751745",
+        "chatSessionId": "sess_a46cf72b-de39-4c0d-b849-37c33ed3dab4",
+        "timestamp": 1794216069740
+      }
+    ]
+  }
+}

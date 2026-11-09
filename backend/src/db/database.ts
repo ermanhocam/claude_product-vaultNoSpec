@@ -19,6 +19,7 @@ const SCHEMA = `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL REFERENCES products (id) ON DELETE RESTRICT,
     content    TEXT    NOT NULL CHECK (length(content) BETWEEN 1 AND 10000),
+    author_id  INTEGER          REFERENCES users (id),
     created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
 
@@ -64,6 +65,21 @@ export function transaction<T>(db: Database, fn: () => T): T {
 }
 
 /**
+ * Adds `notes.author_id` to databases created before the column existed. The fresh
+ * `CREATE TABLE` already has it, so this only fires on pre-feature databases. Because
+ * `node:sqlite` has no "add column if not exists", we inspect `PRAGMA table_info` and
+ * run the additive `ALTER` only when the column is absent, keeping startup idempotent.
+ * Existing rows keep `author_id = NULL` (Authorless_Notes); no row is rewritten.
+ */
+export function migrateNotesAuthor(db: Database): void {
+  const columns = db.prepare('PRAGMA table_info(notes)').all() as Array<{ name: string }>;
+  const hasAuthor = columns.some((column) => column.name === 'author_id');
+  if (!hasAuthor) {
+    db.exec('ALTER TABLE notes ADD COLUMN author_id INTEGER REFERENCES users (id)');
+  }
+}
+
+/**
  * Opens (creating if necessary) the SQLite database at `path` and ensures the
  * schema exists. Safe to call on every startup: no manual migrations needed.
  */
@@ -78,5 +94,6 @@ export function openDatabase(path: string): Database {
     db.exec('PRAGMA journal_mode = WAL;');
   }
   db.exec(SCHEMA);
+  migrateNotesAuthor(db);
   return db;
 }

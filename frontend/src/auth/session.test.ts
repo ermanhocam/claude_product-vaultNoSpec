@@ -6,15 +6,28 @@ const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('
 const tokenWith = (payload: unknown) => `${encode({ alg: 'HS256' })}.${encode(payload)}.signature`;
 
 describe('decodeSession', () => {
-  it('reads the username and expiry (in milliseconds) from the token payload', () => {
+  it('reads the id, username and expiry (in milliseconds) from the token payload', () => {
     expect(decodeSession(tokenWith({ sub: '1', username: 'alice', exp: 1_800_000_000 }))).toEqual({
+      id: 1,
       username: 'alice',
       expiresAt: 1_800_000_000_000,
     });
   });
 
+  it('returns a numeric id decoded from the token sub', () => {
+    expect(decodeSession(tokenWith({ sub: '42', username: 'alice', exp: 1 }))?.id).toBe(42);
+  });
+
+  it.each([
+    ['a missing sub', tokenWith({ username: 'alice', exp: 1 })],
+    ['a non-numeric sub', tokenWith({ sub: 'abc', username: 'alice', exp: 1 })],
+    ['a numeric (non-string) sub', tokenWith({ sub: 1, username: 'alice', exp: 1 })],
+  ])('returns null for %s', (_label, token) => {
+    expect(decodeSession(token)).toBeNull();
+  });
+
   it('decodes base64url payloads, including "-" and "_" characters and UTF-8 text', () => {
-    const token = tokenWith({ username: '~~~ü?>', exp: 1 });
+    const token = tokenWith({ sub: '1', username: '~~~ü?>', exp: 1 });
     expect(token.split('.')[1]).toMatch(/[-_]/);
     expect(decodeSession(token)?.username).toBe('~~~ü?>');
   });

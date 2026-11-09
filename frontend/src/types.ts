@@ -8,6 +8,7 @@ export interface Note {
   id: number;
   productId: number;
   content: string;
+  author: number | null;
   createdAt: string;
 }
 

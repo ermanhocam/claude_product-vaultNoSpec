@@ -331,11 +331,13 @@ describe('Protected note creation (Requirement 14)', () => {
     await ctx.api.get(`/api/products/${productId}/notes`).expect(200);
   });
 
-  it('does not protect product creation or note edits', async () => {
+  it('leaves product creation open but protects note edits', async () => {
     const note = await ctx.createNote(productId, 'Original');
 
+    // Product creation stays anonymous.
     await ctx.api.post('/api/products').send({ name: 'Toaster' }).expect(201);
-    await ctx.api.put(`/api/notes/${note.id}`).send({ content: 'Edited' }).expect(200);
+    // Note editing now requires a login (notes-edit-auth): an anonymous PUT is rejected.
+    await ctx.api.put(`/api/notes/${note.id}`).send({ content: 'Edited' }).expect(401);
   });
 });
 
