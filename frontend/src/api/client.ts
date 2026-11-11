@@ -1,5 +1,14 @@
 import { tokenStore } from '../auth/session';
-import type { Note, Product, ProductSearchCriteria, ProductWithNotes } from '../types';
+import type {
+  Conversation,
+  Message,
+  MessageThread,
+  Note,
+  Product,
+  ProductSearchCriteria,
+  ProductWithNotes,
+  PublicUser,
+} from '../types';
 
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3001').replace(/\/+$/, '');
 
@@ -89,6 +98,19 @@ export const api = {
   updateNote: (noteId: number, content: string) => request<Note>(`/notes/${noteId}`, json('PUT', { content })),
 
   deleteNote: (noteId: number) => request<{ id: number; deleted: true }>(`/notes/${noteId}`, { method: 'DELETE' }),
+
+  // People you can start a conversation with (everyone but you).
+  listMessageUsers: () => request<PublicUser[]>('/messages/users'),
+
+  // Your existing conversations, most recent activity first.
+  listThreads: () => request<MessageThread[]>('/messages/threads'),
+
+  // The full transcript with one other user, plus who they are.
+  getConversation: (userId: number | string) =>
+    request<Conversation>(`/messages/conversations/${encodeURIComponent(userId)}`),
+
+  sendMessage: (userId: number, body: string) =>
+    request<Message>(`/messages/conversations/${userId}`, json('POST', { body })),
 };
 
 export function errorMessage(error: unknown): string {

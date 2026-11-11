@@ -33,6 +33,23 @@ const SCHEMA = `
     password_hash TEXT    NOT NULL,
     created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
+
+  -- Direct messages between two users. A conversation is the set of rows where the pair
+  -- {sender_id, recipient_id} matches, in either direction.
+  CREATE TABLE IF NOT EXISTS messages (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender_id    INTEGER NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
+    recipient_id INTEGER NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
+    body         TEXT    NOT NULL CHECK (length(body) BETWEEN 1 AND 5000),
+    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+
+  -- Both orderings are indexed so fetching a conversation (sender/recipient in either
+  -- direction) and listing a user's threads stay fast as the table grows.
+  CREATE INDEX IF NOT EXISTS idx_messages_sender_recipient
+    ON messages (sender_id, recipient_id, created_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS idx_messages_recipient_sender
+    ON messages (recipient_id, sender_id, created_at DESC, id DESC);
 `;
 
 /** SQLite extended result code SQLITE_CONSTRAINT_UNIQUE. */

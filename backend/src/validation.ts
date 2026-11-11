@@ -2,6 +2,7 @@ import { badRequest } from './errors.js';
 
 export const PRODUCT_NAME_MAX_LENGTH = 200;
 export const NOTE_CONTENT_MAX_LENGTH = 5000;
+export const MESSAGE_BODY_MAX_LENGTH = 5000;
 export const USERNAME_MIN_LENGTH = 3;
 export const USERNAME_MAX_LENGTH = 50;
 export const PASSWORD_MIN_LENGTH = 8;
@@ -61,6 +62,11 @@ export function parseProductName(body: unknown): string {
 /** Validates a note create/update body and returns the trimmed content. */
 export function parseNoteContent(body: unknown): string {
   return readRequiredText(body, 'content', 'Note content', NOTE_CONTENT_MAX_LENGTH);
+}
+
+/** Validates a send-message body and returns the trimmed message text. */
+export function parseMessageBody(body: unknown): string {
+  return readRequiredText(body, 'body', 'Message', MESSAGE_BODY_MAX_LENGTH);
 }
 
 export const SEARCH_QUERY_MAX_LENGTH = 200;

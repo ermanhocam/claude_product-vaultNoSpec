@@ -43,7 +43,15 @@ export function createTestContext() {
     return res.body as { id: number; productId: number; content: string; createdAt: string };
   };
 
-  return { db, app, api, register, login, authHeader, createProduct, createNote };
+  // Registers a brand-new user and returns their id plus a ready-to-use auth header. Handy for
+  // multi-user features like direct messaging where each actor needs their own token.
+  const createUser = async (username: string, password = TEST_PASSWORD) => {
+    const user = await register(username, password);
+    const token = await login(username, password);
+    return { ...user, token, auth: { Authorization: `Bearer ${token}` } };
+  };
+
+  return { db, app, api, register, login, authHeader, createProduct, createNote, createUser };
 }
 
 export const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;

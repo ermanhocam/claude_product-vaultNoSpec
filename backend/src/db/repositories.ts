@@ -22,6 +22,30 @@ export interface User {
   createdAt: string;
 }
 
+export interface Message {
+  id: number;
+  senderId: number;
+  recipientId: number;
+  body: string;
+  createdAt: string;
+}
+
+/** A summary of the latest message exchanged with one other user. */
+export interface MessageThread {
+  partnerId: number;
+  partnerUsername: string;
+  lastBody: string;
+  lastCreatedAt: string;
+}
+
+/** A user stripped of secrets, safe to send to the client (no password hash). */
+export interface PublicUser {
+  id: number;
+  username: string;
+}
+
+export const toPublicUser = (user: User): PublicUser => ({ id: user.id, username: user.username });
+
 interface ProductRow {
   id: number;
   name: string;
@@ -41,6 +65,21 @@ interface UserRow {
   username: string;
   password_hash: string;
   created_at: string;
+}
+
+interface MessageRow {
+  id: number;
+  sender_id: number;
+  recipient_id: number;
+  body: string;
+  created_at: string;
+}
+
+interface MessageThreadRow {
+  partner_id: number;
+  partner_username: string;
+  last_body: string;
+  last_created_at: string;
 }
 
 const toProduct = (row: ProductRow): Product => ({
@@ -64,13 +103,30 @@ const toUser = (row: UserRow): User => ({
   createdAt: row.created_at,
 });
 
+const toMessage = (row: MessageRow): Message => ({
+  id: row.id,
+  senderId: row.sender_id,
+  recipientId: row.recipient_id,
+  body: row.body,
+  createdAt: row.created_at,
+});
+
+const toMessageThread = (row: MessageThreadRow): MessageThread => ({
+  partnerId: row.partner_id,
+  partnerUsername: row.partner_username,
+  lastBody: row.last_body,
+  lastCreatedAt: row.last_created_at,
+});
+
 const PRODUCT_COLUMNS = 'id, name, created_at';
 const NOTE_COLUMNS = 'id, product_id, content, author_id, created_at';
 const USER_COLUMNS = 'id, username, password_hash, created_at';
+const MESSAGE_COLUMNS = 'id, sender_id, recipient_id, body, created_at';
 
 export type ProductRepository = ReturnType<typeof createProductRepository>;
 export type NoteRepository = ReturnType<typeof createNoteRepository>;
 export type UserRepository = ReturnType<typeof createUserRepository>;
+export type MessageRepository = ReturnType<typeof createMessageRepository>;
 
 /** Escapes the LIKE wildcards so user input is matched literally (paired with ESCAPE '\'). */
 function likeContains(term: string): string {
@@ -213,6 +269,11 @@ export function createUserRepository(db: Database) {
   const insert = db.prepare(`INSERT INTO users (username, password_hash) VALUES (?, ?) RETURNING ${USER_COLUMNS}`);
   // The column's NOCASE collation makes this lookup case-insensitive too.
   const selectByUsername = db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE username = ?`);
+  const selectById = db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?`);
+  // Everyone except the caller, so a user never messages themselves. Case-insensitive A→Z.
+  const selectOthers = db.prepare(
+    `SELECT ${USER_COLUMNS} FROM users WHERE id <> ? ORDER BY username COLLATE NOCASE ASC`,
+  );
 
   return {
     /** Throws the SQLite constraint error (see `isUniqueConstraintError`) if the username is taken. */
@@ -223,6 +284,70 @@ export function createUserRepository(db: Database) {
     findByUsername(username: string): User | undefined {
       const row = selectByUsername.get(username) as unknown as UserRow | undefined;
       return row && toUser(row);
+    },
+
+    findById(id: number): User | undefined {
+      const row = selectById.get(id) as unknown as UserRow | undefined;
+      return row && toUser(row);
+    },
+
+    /** Every user other than `exceptId`, username A→Z — the list of people you can message. */
+    listOthers(exceptId: number): User[] {
+      return (selectOthers.all(exceptId) as unknown as UserRow[]).map(toUser);
+    },
+  };
+}
+
+export function createMessageRepository(db: Database) {
+  const insert = db.prepare(
+    `INSERT INTO messages (sender_id, recipient_id, body) VALUES (?, ?, ?) RETURNING ${MESSAGE_COLUMNS}`,
+  );
+  // A conversation is every message exchanged between the pair, in either direction, oldest first
+  // so it reads top-to-bottom like a chat transcript.
+  const selectConversation = db.prepare(
+    `SELECT ${MESSAGE_COLUMNS} FROM messages
+       WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
+       ORDER BY created_at ASC, id ASC`,
+  );
+  // The other party in each of the caller's threads, most-recently-active first, with the latest
+  // message body and time. `partner_id` is whichever side of the row isn't the caller.
+  const selectThreads = db.prepare(
+    `SELECT
+        partner_id,
+        (SELECT username FROM users WHERE id = partner_id) AS partner_username,
+        last_body,
+        last_created_at
+       FROM (
+         SELECT
+           CASE WHEN sender_id = ?1 THEN recipient_id ELSE sender_id END AS partner_id,
+           body AS last_body,
+           created_at AS last_created_at,
+           ROW_NUMBER() OVER (
+             PARTITION BY CASE WHEN sender_id = ?1 THEN recipient_id ELSE sender_id END
+             ORDER BY created_at DESC, id DESC
+           ) AS rn
+         FROM messages
+         WHERE sender_id = ?1 OR recipient_id = ?1
+       )
+       WHERE rn = 1
+       ORDER BY last_created_at DESC`,
+  );
+
+  return {
+    create(senderId: number, recipientId: number, body: string): Message {
+      return toMessage(insert.get(senderId, recipientId, body) as unknown as MessageRow);
+    },
+
+    /** Every message between the two users, in either direction, oldest first. */
+    findConversation(userId: number, partnerId: number): Message[] {
+      return (
+        selectConversation.all(userId, partnerId, partnerId, userId) as unknown as MessageRow[]
+      ).map(toMessage);
+    },
+
+    /** One entry per person the user has a conversation with, most recent activity first. */
+    findThreads(userId: number): MessageThread[] {
+      return (selectThreads.all(userId) as unknown as MessageThreadRow[]).map(toMessageThread);
     },
   };
 }

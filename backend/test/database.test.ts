@@ -33,13 +33,13 @@ afterEach(() => {
 });
 
 describe('Embedded SQLite database (Requirement 7)', () => {
-  it('creates the products, notes and users tables on startup', () => {
+  it('creates the products, notes, users and messages tables on startup', () => {
     const db = open();
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
       .all()
       .map((row) => row.name);
-    expect(tables).toEqual(['notes', 'products', 'users']);
+    expect(tables).toEqual(['messages', 'notes', 'products', 'users']);
   });
 
   it('creates the database file and parent directories when missing, and keeps data across restarts', () => {
