@@ -1,6 +1,7 @@
 // Limits mirror the backend's validation rules.
 export const PRODUCT_NAME_MAX_LENGTH = 200;
 export const NOTE_CONTENT_MAX_LENGTH = 5000;
+export const MESSAGE_BODY_MAX_LENGTH = 5000;
 
 /** Counts Unicode code points so an emoji counts as one character, as the backend does. */
 export function characterCount(value: string): number {

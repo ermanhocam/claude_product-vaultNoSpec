@@ -893,3 +893,137 @@ a {
     animation-duration: 2.4s;
   }
 }
+
+/* ---------- Advanced product search ---------- */
+
+.search-form__advanced {
+  margin-top: 0.875rem;
+}
+
+.search-form__advanced > .text-button {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.search-form__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.875rem 1rem;
+  margin: 0.875rem 0 0;
+  padding: 1rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.search-form__fields .field + .field {
+  margin-top: 0; /* the grid handles spacing between fields here */
+}
+
+.search-form__fields label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.search-form__fields .input {
+  width: 100%;
+}
+
+/* ---------- Messages ---------- */
+
+.messages-section {
+  margin-top: 1.75rem;
+}
+
+.thread-list,
+.people-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.thread {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 1rem 1.25rem;
+}
+
+.thread__link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  text-decoration: none;
+}
+
+.thread__name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.thread:hover .thread__name {
+  color: var(--accent);
+}
+
+.thread__preview {
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
+}
+
+.person {
+  padding: 0;
+}
+
+.person__link {
+  display: block;
+  padding: 0.875rem 1.25rem;
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.person:hover .person__link {
+  color: var(--accent);
+}
+
+.message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0 0 1.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.message {
+  max-width: 75%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.message--mine {
+  align-self: flex-end;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.message--theirs {
+  align-self: flex-start;
+}
+
+.message__body {
+  margin: 0 0 0.375rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -1,6 +1,8 @@
 import { Link, Route, Routes } from 'react-router';
 import { AuthProvider, useAuth, useAuthLinkState } from './auth/AuthContext';
+import { ConversationPage } from './pages/ConversationPage';
 import { LoginPage } from './pages/LoginPage';
+import { MessagesPage } from './pages/MessagesPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { ProductListPage } from './pages/ProductListPage';
@@ -14,6 +16,9 @@ function AccountNav() {
     <nav className="account" aria-label="Account">
       {user ? (
         <>
+          <Link className="account__link" to="/messages">
+            Messages
+          </Link>
           <span className="account__user">
             <span className="account__prefix">Signed in as </span>
             <strong>{user.username}</strong>
@@ -53,6 +58,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<ProductListPage />} />
             <Route path="/products/:productId" element={<ProductDetailPage />} />
+            <Route path="/messages" element={<MessagesPage />} />
+            <Route path="/messages/:userId" element={<ConversationPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="*" element={<NotFoundPage />} />

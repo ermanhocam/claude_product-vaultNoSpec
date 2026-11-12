@@ -6,17 +6,48 @@ import { DateChip } from '../components/DateChip';
 import { DeleteProduct } from '../components/DeleteProduct';
 import { EmptyState, ErrorNotice, Loading } from '../components/Feedback';
 import { ProductForm } from '../components/ProductForm';
+import { ProductSearch } from '../components/ProductSearch';
 import { pluralize } from '../lib/text';
 import { useResource } from '../lib/useResource';
-import type { Product } from '../types';
+import type { Product, ProductSearchCriteria } from '../types';
 
 export interface ProductListLocationState {
   /** Name of a product that was just deleted on its detail page. */
   deletedProduct?: string;
 }
 
+const EMPTY_CRITERIA: ProductSearchCriteria = { query: '' };
+
+/** True when any filter is set, so the page is showing search results rather than the full list. */
+function isSearching(criteria: ProductSearchCriteria): boolean {
+  return Boolean(
+    criteria.query || criteria.from || criteria.to || criteria.noteText || criteria.author,
+  );
+}
+
+/** A short human description of the active filters, for the results heading and empty state. */
+function describeCriteria(criteria: ProductSearchCriteria): string {
+  const parts: string[] = [];
+  if (criteria.query) parts.push(`“${criteria.query}”`);
+  if (criteria.from && criteria.to) parts.push(`created ${criteria.from} to ${criteria.to}`);
+  else if (criteria.from) parts.push(`created on or after ${criteria.from}`);
+  else if (criteria.to) parts.push(`created on or before ${criteria.to}`);
+  if (criteria.noteText) parts.push(`a note containing “${criteria.noteText}”`);
+  if (criteria.author) parts.push(`a note by ${criteria.author}`);
+  return parts.join(', ');
+}
+
 export function ProductListPage() {
-  const { state, update, reload } = useResource(() => api.listProducts(), []);
+  // Empty criteria list everything; any filter runs a search. Name search is public, so it
+  // works for everyone; the advanced filters are only offered to logged-in users.
+  const [criteria, setCriteria] = useState<ProductSearchCriteria>(EMPTY_CRITERIA);
+  const searching = isSearching(criteria);
+  // Serialize the criteria so `useResource` refetches whenever any filter changes.
+  const key = JSON.stringify(criteria);
+  const { state, update, reload } = useResource(
+    () => (searching ? api.searchProducts(criteria) : api.listProducts()),
+    [key],
+  );
   const { user } = useAuth();
   const [newestId, setNewestId] = useState<number | null>(null);
 
@@ -45,7 +76,11 @@ export function ProductListPage() {
   async function handleCreate(name: string) {
     const product = await api.createProduct(name);
     setNewestId(product.id);
-    if (state.status === 'success') {
+    // While a search is active a new product may not match it, so clear the filters to show the
+    // full list (which re-fetches and includes the new product). Otherwise just prepend it.
+    if (searching) {
+      setCriteria(EMPTY_CRITERIA);
+    } else if (state.status === 'success') {
       update((products) => [product, ...products]);
     } else {
       reload();
@@ -64,11 +99,17 @@ export function ProductListPage() {
           Products
         </h1>
         {state.status === 'success' && state.data.length > 0 && (
-          <p className="page-header__meta">{pluralize(state.data.length, 'product')}</p>
+          <p className="page-header__meta">
+            {searching
+              ? `${pluralize(state.data.length, 'match', 'matches')} for ${describeCriteria(criteria)}`
+              : pluralize(state.data.length, 'product')}
+          </p>
         )}
       </div>
 
-      <ProductForm onCreate={handleCreate} />
+      {user && <ProductForm onCreate={handleCreate} />}
+
+      <ProductSearch criteria={criteria} canUseAdvanced={Boolean(user)} onSearch={setCriteria} />
 
       {deleted && (
         <p ref={deletedNoticeRef} className="form-notice" role="status" tabIndex={-1}>
@@ -92,7 +133,13 @@ export function ProductListPage() {
 
       {state.status === 'success' &&
         (state.data.length === 0 ? (
-          <EmptyState>No products yet. Add your first one above to start keeping notes on it.</EmptyState>
+          <EmptyState>
+            {searching
+              ? `No products match ${describeCriteria(criteria)}. Try different filters.`
+              : user
+                ? 'No products yet. Add your first one above to start keeping notes on it.'
+                : 'No products yet. Log in to add the first one.'}
+          </EmptyState>
         ) : (
           <ul className="product-grid">
             {state.data.map((product) => (
