@@ -7,8 +7,9 @@ import { apiUrl, backend, server } from '../test/mockApi';
 import { deferred, note, product, renderApp, signIn } from '../test/utils';
 
 const moka = product({ id: 1, name: 'Moka pot' });
-const first = note({ id: 10, content: 'Arrived with a dented lid', createdAt: '2026-10-18T07:15:00.000Z' });
-const second = note({ id: 11, content: 'Brews in about 5 minutes\non a medium flame', createdAt: '2026-10-19T18:40:00.000Z' });
+// Authored by alice (id 1), who signs in by default, so her Edit control shows on them.
+const first = note({ id: 10, content: 'Arrived with a dented lid', author: 1, createdAt: '2026-10-18T07:15:00.000Z' });
+const second = note({ id: 11, content: 'Brews in about 5 minutes\non a medium flame', author: 1, createdAt: '2026-10-19T18:40:00.000Z' });
 
 const notesList = () => screen.getByRole('list', { name: /notes on moka pot/i });
 const noteContents = () =>
@@ -186,14 +187,13 @@ describe('Adding a note (Requirement 4)', () => {
 });
 
 describe('Deleting a note (Requirement 9)', () => {
-  it('hides the Delete action from visitors who are not logged in but keeps Edit', async () => {
+  it('hides the Delete action from visitors who are not logged in', async () => {
     await openProduct([first, second], { loggedIn: false });
 
     const items = within(notesList()).getAllByRole('listitem');
     expect(items).toHaveLength(2);
     for (const item of items) {
       expect(within(item).queryByRole('button', { name: /^delete/i })).not.toBeInTheDocument();
-      expect(within(item).getByRole('button', { name: /^edit/i })).toBeInTheDocument();
     }
   });
 
@@ -482,6 +482,33 @@ describe('Deleting a product (Requirement 19)', () => {
     const dialog = screen.getByRole('alertdialog');
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: 'Delete product' })).toBeEnabled();
+  });
+});
+
+describe('Edit control gating (Requirement 5)', () => {
+  const editButtonIn = (item: HTMLElement) => within(item).queryByRole('button', { name: /^edit/i });
+
+  it('hides Edit on every note when nobody is logged in (Req 5.1)', async () => {
+    await openProduct([first, second], { loggedIn: false });
+
+    const items = within(notesList()).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    for (const item of items) {
+      expect(editButtonIn(item)).not.toBeInTheDocument();
+    }
+  });
+
+  it('shows Edit only on the logged-in user’s own notes (Req 5.2, 5.3)', async () => {
+    // alice signs in with id 1, so a note authored by 1 is hers; 2 is another user's; null is authorless.
+    const own = note({ id: 20, content: 'My own note', author: 1, createdAt: '2026-10-20T08:00:00.000Z' });
+    const others = note({ id: 21, content: 'Someone else’s note', author: 2, createdAt: '2026-10-20T08:01:00.000Z' });
+    const authorless = note({ id: 22, content: 'Legacy authorless note', author: null, createdAt: '2026-10-20T08:02:00.000Z' });
+
+    await openProduct([own, others, authorless]); // logs in alice (id 1) by default
+
+    expect(editButtonIn(noteItem(own.content))).toBeInTheDocument();
+    expect(editButtonIn(noteItem(others.content))).not.toBeInTheDocument();
+    expect(editButtonIn(noteItem(authorless.content))).not.toBeInTheDocument();
   });
 });
 

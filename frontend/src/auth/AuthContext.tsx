@@ -15,7 +15,7 @@ export interface AuthLocationState {
 
 interface AuthContextValue {
   /** The logged-in user, or `null` when nobody is logged in. */
-  user: { username: string } | null;
+  user: { id: number; username: string } | null;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user: session && { username: session.username }, login, logout }),
+    () => ({ user: session && { id: session.id, username: session.username }, login, logout }),
     [session, login, logout],
   );
   return <AuthContext value={value}>{children}</AuthContext>;

@@ -3,7 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { formatDate } from '../lib/format';
 import { apiUrl, backend, server } from '../test/mockApi';
-import { deferred, product, renderApp, signIn } from '../test/utils';
+import { deferred, note, product, renderApp, signIn } from '../test/utils';
 
 const older = product({ id: 1, name: 'Moka pot', createdAt: '2026-10-01T08:00:00.000Z' });
 const newer = product({ id: 2, name: 'Noise-cancelling headphones', createdAt: '2026-10-15T08:00:00.000Z' });
@@ -89,8 +89,10 @@ describe('Product list (Requirement 2)', () => {
 });
 
 describe('Creating a product (Requirement 1)', () => {
+  // Adding a product needs a login, so each test signs in before rendering.
   it('adds the new product to the top of the list without reloading the page', async () => {
     backend.seed({ products: [older] });
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText('Moka pot');
 
@@ -106,6 +108,7 @@ describe('Creating a product (Requirement 1)', () => {
   });
 
   it('adds the first product, replacing the empty state', async () => {
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
@@ -115,7 +118,17 @@ describe('Creating a product (Requirement 1)', () => {
     expect(screen.queryByText(/no products yet/i)).not.toBeInTheDocument();
   });
 
+  it('hides the add-product form from visitors who are not logged in', async () => {
+    renderApp('/');
+    await screen.findByText(/no products yet/i);
+
+    expect(screen.queryByLabelText('Product name')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add product' })).not.toBeInTheDocument();
+    expect(screen.getByText(/log in to add the first one/i)).toBeInTheDocument();
+  });
+
   it('requires a name before sending anything to the backend', async () => {
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
@@ -128,6 +141,7 @@ describe('Creating a product (Requirement 1)', () => {
   });
 
   it('rejects names over 200 characters before sending them', async () => {
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
@@ -147,6 +161,7 @@ describe('Creating a product (Requirement 1)', () => {
         HttpResponse.json({ error: 'Product name must not exceed 200 characters' }, { status: 400 }),
       ),
     );
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
@@ -164,6 +179,7 @@ describe('Creating a product (Requirement 1)', () => {
         return HttpResponse.json(older, { status: 201 });
       }),
     );
+    signIn('alice');
     const { user } = renderApp('/');
     await screen.findByText(/no products yet/i);
 
@@ -419,6 +435,177 @@ describe('Deleting a product (Requirement 19)', () => {
     expect(screen.queryByText('An unexpected error occurred')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(exactly(notice('Moka pot')));
+  });
+});
+
+describe('Searching products (public search)', () => {
+  const moka = product({ id: 1, name: 'Moka pot', createdAt: '2026-10-01T08:00:00.000Z' });
+  const headphones = product({ id: 2, name: 'Noise-cancelling headphones', createdAt: '2026-10-15T08:00:00.000Z' });
+  const kettle = product({ id: 3, name: 'Electric kettle', createdAt: '2026-10-10T08:00:00.000Z' });
+
+  const searchRequests = () => backend.requests.filter((r) => r.path === '/api/products/search');
+
+  it('filters the list by name as the visitor types, newest first', async () => {
+    backend.seed({ products: [moka, headphones, kettle] });
+    const { user } = renderApp('/');
+    await screen.findByText('Moka pot');
+
+    await user.type(screen.getByRole('searchbox', { name: /search products/i }), 'o');
+
+    // Both "Moka pot" and "Noise-cancelling headphones" contain an "o"; newest first.
+    await waitFor(() => expect(productNames()).toEqual(['Noise-cancelling headphones', 'Moka pot']));
+    expect(screen.getByText('2 matches for “o”')).toBeInTheDocument();
+  });
+
+  it('works for visitors who are not logged in', async () => {
+    backend.seed({ products: [moka, kettle] });
+    const { user } = renderApp('/');
+    await screen.findByText('Moka pot');
+
+    // No add-product form, but the search box is still there.
+    expect(screen.queryByLabelText('Product name')).not.toBeInTheDocument();
+    await user.type(screen.getByRole('searchbox', { name: /search products/i }), 'kettle');
+
+    await waitFor(() => expect(productNames()).toEqual(['Electric kettle']));
+    expect(searchRequests().length).toBeGreaterThan(0);
+  });
+
+  it('shows a no-results empty state and recovers when the search is cleared', async () => {
+    backend.seed({ products: [moka] });
+    const { user } = renderApp('/');
+    await screen.findByText('Moka pot');
+
+    await user.type(screen.getByRole('searchbox', { name: /search products/i }), 'xyz');
+
+    expect(await screen.findByText(/no products match .*xyz.* try different filters/i)).toBeInTheDocument();
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+    await waitFor(() => expect(productNames()).toEqual(['Moka pot']));
+  });
+
+  it('requires every term to match, in any order', async () => {
+    const red = product({ id: 10, name: 'Red wool blanket', createdAt: '2026-10-02T08:00:00.000Z' });
+    const blue = product({ id: 11, name: 'Blue cotton blanket', createdAt: '2026-10-03T08:00:00.000Z' });
+    backend.seed({ products: [red, blue] });
+    const { user } = renderApp('/');
+    await screen.findByText('Red wool blanket');
+
+    await user.type(screen.getByRole('searchbox', { name: /search products/i }), 'blanket red{Enter}');
+
+    await waitFor(() => expect(productNames()).toEqual(['Red wool blanket']));
+  });
+});
+
+describe('Advanced search (logged-in only)', () => {
+  const alice = { id: 1, username: 'alice', password: 'correct horse battery' };
+  const moka = product({ id: 1, name: 'Moka pot', createdAt: '2026-09-01T08:00:00.000Z' });
+  const kettle = product({ id: 2, name: 'Electric kettle', createdAt: '2026-10-20T08:00:00.000Z' });
+  const grinder = product({ id: 3, name: 'Coffee grinder', createdAt: '2026-11-05T08:00:00.000Z' });
+
+  const toggleAdvanced = () => screen.getByRole('button', { name: /advanced filters/i });
+
+  it('hides the advanced filters from visitors who are not logged in', async () => {
+    backend.seed({ products: [moka] });
+    renderApp('/');
+    await screen.findByText('Moka pot');
+
+    expect(screen.queryByRole('button', { name: /advanced filters/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: /search products/i })).toBeInTheDocument();
+  });
+
+  it('shows the advanced filters to logged-in users and can toggle them', async () => {
+    backend.seed({ products: [moka], users: [alice] });
+    signIn('alice');
+    const { user } = renderApp('/');
+    await screen.findByText('Moka pot');
+
+    expect(screen.queryByLabelText('Created from')).not.toBeInTheDocument();
+    await user.click(toggleAdvanced());
+
+    expect(screen.getByLabelText('Created from')).toBeInTheDocument();
+    expect(screen.getByLabelText('Created to')).toBeInTheDocument();
+    expect(screen.getByLabelText('Note contains')).toBeInTheDocument();
+    expect(screen.getByLabelText('Note by user')).toBeInTheDocument();
+  });
+
+  it('filters products by a creation-date range', async () => {
+    backend.seed({ products: [moka, kettle, grinder], users: [alice] });
+    signIn('alice');
+    const { user } = renderApp('/');
+    await screen.findByText('Moka pot');
+
+    await user.click(toggleAdvanced());
+    await user.type(screen.getByLabelText('Created from'), '2026-10-01');
+    await user.type(screen.getByLabelText('Created to'), '2026-10-31');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    // Only the kettle (2026-10-20) falls inside October.
+    await waitFor(() => expect(productNames()).toEqual(['Electric kettle']));
+    const searchRequest = backend.requests.find((r) => r.path === '/api/products/search');
+    expect(searchRequest?.authorization).toMatch(/^Bearer /);
+  });
+
+  it('filters products that have a note containing given text', async () => {
+    backend.seed({
+      products: [moka, kettle],
+      notes: [note({ id: 1, productId: 1, content: 'Makes strong espresso' })],
+      users: [alice],
+    });
+    signIn('alice');
+    const { user } = renderApp('/');
+    await screen.findByText('Moka pot');
+
+    await user.click(toggleAdvanced());
+    await user.type(screen.getByLabelText('Note contains'), 'espresso');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(productNames()).toEqual(['Moka pot']));
+  });
+
+  it('filters products that have a note by a particular user', async () => {
+    backend.seed({
+      products: [moka, kettle],
+      notes: [
+        note({ id: 1, productId: 1, content: 'Aliceʼs note', author: alice.id }),
+        note({ id: 2, productId: 2, content: 'Authorless note', author: null }),
+      ],
+      users: [alice],
+    });
+    signIn('alice');
+    const { user } = renderApp('/');
+    await screen.findByText('Moka pot');
+
+    await user.click(toggleAdvanced());
+    await user.type(screen.getByLabelText('Note by user'), 'alice');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(productNames()).toEqual(['Moka pot']));
+  });
+
+  it('combines name, note text and author filters', async () => {
+    const otherMoka = product({ id: 4, name: 'Moka express', createdAt: '2026-09-02T08:00:00.000Z' });
+    backend.seed({
+      products: [moka, otherMoka, kettle],
+      notes: [
+        note({ id: 1, productId: moka.id, content: 'great espresso', author: alice.id }),
+        note({ id: 2, productId: otherMoka.id, content: 'weak espresso', author: null }),
+      ],
+      users: [alice],
+    });
+    signIn('alice');
+    const { user } = renderApp('/');
+    await screen.findByText('Moka pot');
+
+    await user.type(screen.getByRole('searchbox', { name: /search products/i }), 'moka');
+    await user.click(toggleAdvanced());
+    await user.type(screen.getByLabelText('Note contains'), 'espresso');
+    await user.type(screen.getByLabelText('Note by user'), 'alice');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    // Both are named "Moka" with an "espresso" note, but only moka pot's note is by alice.
+    await waitFor(() => expect(productNames()).toEqual(['Moka pot']));
   });
 });
 

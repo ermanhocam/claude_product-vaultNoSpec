@@ -15,6 +15,16 @@ declare global {
 // parsing strips trailing whitespace: a client's "Bearer " (empty token) arrives as "Bearer".
 const BEARER = /^Bearer(?:\s+(.*))?$/i;
 
+/** Verifies `token` and attaches the user to `req`, translating token failures to 401s. */
+async function attachUser(req: Parameters<RequestHandler>[0], tokens: TokenService, token: string): Promise<void> {
+  try {
+    req.user = await tokens.verify(token);
+  } catch (error) {
+    if (!(error instanceof TokenError)) throw error;
+    throw unauthorized(error.reason === 'expired' ? MESSAGES.tokenExpired : MESSAGES.invalidToken);
+  }
+}
+
 /**
  * Lets a request through only with a valid `Authorization: Bearer <token>` header, and
  * attaches the token's user as `req.user`. Rejections become `401 { "error": ... }`
@@ -28,12 +38,32 @@ export function createAuthMiddleware(tokens: TokenService): RequestHandler {
     const token = match[1]?.trim();
     if (!token) throw unauthorized(MESSAGES.invalidToken);
 
-    try {
-      req.user = await tokens.verify(token);
-    } catch (error) {
-      if (!(error instanceof TokenError)) throw error;
-      throw unauthorized(error.reason === 'expired' ? MESSAGES.tokenExpired : MESSAGES.invalidToken);
+    await attachUser(req, tokens, token);
+    next();
+  };
+}
+
+/**
+ * Attaches `req.user` when a valid bearer token is present, but lets requests without any
+ * `Authorization` header through as anonymous (`req.user` stays undefined). A header that
+ * is present but malformed, invalid or expired is still rejected with 401, so a broken
+ * session gets a clear error rather than silently falling back to anonymous access.
+ * Used for endpoints that are public but offer extra behaviour to logged-in users.
+ */
+export function createOptionalAuthMiddleware(tokens: TokenService): RequestHandler {
+  return async (req, _res, next) => {
+    const header = req.get('Authorization');
+    if (header === undefined || header === '') {
+      next();
+      return;
     }
+    const match = BEARER.exec(header);
+    if (!match) throw unauthorized(MESSAGES.invalidToken);
+
+    const token = match[1]?.trim();
+    if (!token) throw unauthorized(MESSAGES.invalidToken);
+
+    await attachUser(req, tokens, token);
     next();
   };
 }

@@ -8,7 +8,8 @@ import { CharacterCount } from './Feedback';
 
 interface NoteItemProps {
   note: Note;
-  onSave: (content: string) => Promise<void>;
+  /** Leave out to hide the Edit action (editing needs to be the author). */
+  onSave?: (content: string) => Promise<void>;
   /** Leave out to hide the Delete action (deleting needs a login). */
   onDelete?: () => Promise<void>;
 }
@@ -58,6 +59,7 @@ export function NoteItem({ note, onSave, onDelete }: NoteItemProps) {
   }
 
   async function save() {
+    if (!onSave) return;
     const problem = validateText(draft, 'Note content', NOTE_CONTENT_MAX_LENGTH);
     if (problem) {
       setError(problem);
@@ -179,9 +181,11 @@ export function NoteItem({ note, onSave, onDelete }: NoteItemProps) {
         <div className="note-card__actions">
           {mode === 'view' && (
             <>
-              <button ref={editButtonRef} className="text-button" type="button" onClick={startEditing}>
-                Edit<span className="visually-hidden"> note from {timestamp}</span>
-              </button>
+              {onSave && (
+                <button ref={editButtonRef} className="text-button" type="button" onClick={startEditing}>
+                  Edit<span className="visually-hidden"> note from {timestamp}</span>
+                </button>
+              )}
               {onDelete && (
                 <button
                   ref={deleteButtonRef}

@@ -1,6 +1,8 @@
 export const TOKEN_STORAGE_KEY = 'productVault.token';
 
 export interface Session {
+  /** The author identifier (numeric users.id, decoded from the JWT `sub` claim). */
+  id: number;
   username: string;
   /** When the token stops being valid, in epoch milliseconds. */
   expiresAt: number;
@@ -19,7 +21,7 @@ function decodeBase64Url(segment: string): string {
 }
 
 /**
- * Reads the username and expiry from a JWT's payload, or returns `null` if it can't.
+ * Reads the id (`sub`), username and expiry from a JWT's payload, or returns `null` if it can't.
  * The signature isn't checked here: only the server can do that, and does on every
  * protected request.
  */
@@ -28,9 +30,10 @@ export function decodeSession(token: string): Session | null {
   if (!payload) return null;
   try {
     const claims: unknown = JSON.parse(decodeBase64Url(payload));
-    const { username, exp } = (claims ?? {}) as { username?: unknown; exp?: unknown };
-    if (typeof username !== 'string' || typeof exp !== 'number') return null;
-    return { username, expiresAt: exp * 1000 };
+    const { sub, username, exp } = (claims ?? {}) as { sub?: unknown; username?: unknown; exp?: unknown };
+    const id = typeof sub === 'string' ? Number(sub) : NaN;
+    if (!Number.isInteger(id) || typeof username !== 'string' || typeof exp !== 'number') return null;
+    return { id, username, expiresAt: exp * 1000 };
   } catch {
     return null;
   }

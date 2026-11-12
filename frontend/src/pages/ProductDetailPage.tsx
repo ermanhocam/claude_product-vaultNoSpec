@@ -143,14 +143,17 @@ export function ProductDetailPage() {
           <EmptyState>{user ? 'No notes yet. Write down your first observation above.' : 'No notes yet.'}</EmptyState>
         ) : (
           <ol className="note-list" aria-label={`Notes on ${product.name}, newest first`}>
-            {product.notes.map((note) => (
-              <NoteItem
-                key={note.id}
-                note={note}
-                onSave={(content) => saveNote(note.id, content)}
-                onDelete={user ? () => deleteNote(note.id) : undefined}
-              />
-            ))}
+            {product.notes.map((note) => {
+              const canEdit = user != null && user.id === note.author;
+              return (
+                <NoteItem
+                  key={note.id}
+                  note={note}
+                  onSave={canEdit ? (content) => saveNote(note.id, content) : undefined}
+                  onDelete={user ? () => deleteNote(note.id) : undefined}
+                />
+              );
+            })}
           </ol>
         )}
       </section>

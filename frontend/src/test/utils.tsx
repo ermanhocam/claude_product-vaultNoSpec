@@ -24,7 +24,7 @@ export function product(overrides: Partial<Product> = {}): Product {
 }
 
 export function note(overrides: Partial<Note> = {}): Note {
-  return { id: 1, productId: 1, content: 'Makes strong coffee', createdAt: '2026-10-20T10:00:00.000Z', ...overrides };
+  return { id: 1, productId: 1, content: 'Makes strong coffee', author: null, createdAt: '2026-10-20T10:00:00.000Z', ...overrides };
 }
 
 /** Stores a login token, as a previous visit would have, so the app starts logged in. */

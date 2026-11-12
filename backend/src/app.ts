@@ -1,12 +1,18 @@
 import cors from 'cors';
 import express, { type Express } from 'express';
-import { createAuthMiddleware } from './auth/middleware.js';
+import { createAuthMiddleware, createOptionalAuthMiddleware } from './auth/middleware.js';
 import { createPasswordHasher } from './auth/passwords.js';
 import { createTokenService } from './auth/tokens.js';
 import type { Database } from './db/database.js';
-import { createNoteRepository, createProductRepository, createUserRepository } from './db/repositories.js';
+import {
+  createMessageRepository,
+  createNoteRepository,
+  createProductRepository,
+  createUserRepository,
+} from './db/repositories.js';
 import { errorHandler, notFoundHandler } from './errors.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createMessagesRouter } from './routes/messages.js';
 import { createNotesRouter } from './routes/notes.js';
 import { createProductsRouter } from './routes/products.js';
 
@@ -22,8 +28,10 @@ export function createApp({ db, corsOrigins, jwtSecret, bcryptRounds }: AppOptio
   const products = createProductRepository(db);
   const notes = createNoteRepository(db);
   const users = createUserRepository(db);
+  const messages = createMessageRepository(db);
   const tokens = createTokenService(jwtSecret);
   const requireAuth = createAuthMiddleware(tokens);
+  const optionalAuth = createOptionalAuthMiddleware(tokens);
 
   const app = express();
   app.disable('x-powered-by');
@@ -34,8 +42,9 @@ export function createApp({ db, corsOrigins, jwtSecret, bcryptRounds }: AppOptio
     res.json({ status: 'ok' });
   });
   app.use('/api/auth', createAuthRouter(users, createPasswordHasher(bcryptRounds), tokens));
-  app.use('/api/products', createProductsRouter(products, notes, requireAuth));
+  app.use('/api/products', createProductsRouter(products, notes, requireAuth, optionalAuth));
   app.use('/api/notes', createNotesRouter(notes, requireAuth));
+  app.use('/api/messages', createMessagesRouter(messages, users, requireAuth));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

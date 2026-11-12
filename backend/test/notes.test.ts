@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestContext, ISO_TIMESTAMP } from './helpers.js';
 
@@ -25,6 +26,12 @@ const deleteNote = async (path: string) => {
   return ctx.api.delete(path).set(auth);
 };
 
+/** Note editing requires a login too; sends a PUT with the default "tester" token. */
+const putNote = async (path: string, body: object) => {
+  const auth = await ctx.authHeader();
+  return ctx.api.put(path).set(auth).send(body);
+};
+
 describe('POST /api/products/:id/notes (Requirement 4)', () => {
   it('creates a note and returns its id, content and creation timestamp', async () => {
     const res = await postNote(productId, { content: 'Very comfortable' });
@@ -36,6 +43,7 @@ describe('POST /api/products/:id/notes (Requirement 4)', () => {
       id: expect.any(Number),
       productId,
       content: 'Very comfortable',
+      author: expect.any(Number),
       createdAt: expect.stringMatching(ISO_TIMESTAMP),
     });
   });
@@ -96,6 +104,7 @@ describe('GET /api/products/:id/notes (Requirement 5)', () => {
         id: expect.any(Number),
         productId,
         content: expect.any(String),
+        author: expect.any(Number),
         createdAt: expect.stringMatching(ISO_TIMESTAMP),
       });
     }
@@ -140,7 +149,7 @@ describe('PUT /api/notes/:id (Requirement 10)', () => {
   it('updates the content and returns the note with its original creation timestamp', async () => {
     const note = await ctx.createNote(productId, 'Original');
 
-    const res = await ctx.api.put(`/api/notes/${note.id}`).send({ content: '  Updated  ' });
+    const res = await putNote(`/api/notes/${note.id}`, { content: '  Updated  ' });
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/application\/json/);
@@ -156,30 +165,170 @@ describe('PUT /api/notes/:id (Requirement 10)', () => {
     ['missing content', {}],
   ])('rejects %s with a "content is required" error', async (_label, body) => {
     const note = await ctx.createNote(productId, 'Original');
-    const res = await ctx.api.put(`/api/notes/${note.id}`).send(body);
+    const res = await putNote(`/api/notes/${note.id}`, body);
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Note content is required' });
   });
 
   it('accepts exactly 5000 characters and rejects 5001', async () => {
     const note = await ctx.createNote(productId, 'Original');
-    await ctx.api.put(`/api/notes/${note.id}`).send({ content: 'y'.repeat(5000) }).expect(200);
+    await putNote(`/api/notes/${note.id}`, { content: 'y'.repeat(5000) }).then((r) => expect(r.status).toBe(200));
 
-    const res = await ctx.api.put(`/api/notes/${note.id}`).send({ content: 'y'.repeat(5001) });
+    const res = await putNote(`/api/notes/${note.id}`, { content: 'y'.repeat(5001) });
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Note content must not exceed 5000 characters' });
   });
 
   it('leaves the note unchanged when validation fails', async () => {
     const note = await ctx.createNote(productId, 'Original');
-    await ctx.api.put(`/api/notes/${note.id}`).send({ content: '' }).expect(400);
+    await putNote(`/api/notes/${note.id}`, { content: '' }).then((r) => expect(r.status).toBe(400));
     const stored = await ctx.api.get(`/api/products/${productId}/notes`).expect(200);
     expect(stored.body).toEqual([note]);
   });
 
   it.each(['9999', 'abc'])('returns 404 "Note not found" for note id "%s"', async (id) => {
-    const res = await ctx.api.put(`/api/notes/${id}`).send({ content: 'Updated' });
+    const res = await putNote(`/api/notes/${id}`, { content: 'Updated' });
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Note not found' });
+  });
+});
+
+// Task 4.1 — auth + ownership examples/edges for PUT /api/notes/:noteId.
+describe('PUT /api/notes/:id authentication and ownership (Requirements 1, 2)', () => {
+  const EXPIRED_TOKEN =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
+    'eyJzdWIiOiIxIiwidXNlcm5hbWUiOiJ0ZXN0ZXIiLCJpYXQiOjE1MTYyMzkwMjIsImV4cCI6MTUxNjIzOTAyM30.' +
+    'invalidsignature';
+
+  it.each([
+    ['a missing Authorization header', undefined],
+    ['a malformed Authorization header', { Authorization: 'Token abc' }],
+    ['an empty bearer token', { Authorization: 'Bearer ' }],
+    ['an invalid/expired token', { Authorization: `Bearer ${EXPIRED_TOKEN}` }],
+  ])('rejects an unauthenticated PUT with %s with 401 and leaves the content unchanged', async (_label, header) => {
+    const note = await ctx.createNote(productId, 'Original');
+
+    let req = ctx.api.put(`/api/notes/${note.id}`);
+    if (header) req = req.set(header);
+    const res = await req.send({ content: 'Hijacked' });
+
+    expect(res.status).toBe(401);
+
+    const stored = await ctx.api.get(`/api/products/${productId}/notes`).expect(200);
+    expect(stored.body).toEqual([note]);
+  });
+
+  it('returns 401 for both an existing and a non-existent note id (no existence leak)', async () => {
+    const note = await ctx.createNote(productId, 'Original');
+
+    const existing = await ctx.api.put(`/api/notes/${note.id}`).send({ content: 'x' });
+    const missing = await ctx.api.put('/api/notes/9999').send({ content: 'x' });
+
+    expect(existing.status).toBe(401);
+    expect(missing.status).toBe(401);
+    // Identical responses: the lookup never runs, so nothing distinguishes the two.
+    expect(existing.body).toEqual(missing.body);
+  });
+
+  it('returns 404 for an authenticated PUT to a non-existent note', async () => {
+    const res = await putNote('/api/notes/9999', { content: 'Updated' });
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Note not found' });
+  });
+
+  it('returns 403 for an authenticated PUT to an authorless note and leaves it unchanged', async () => {
+    const note = await ctx.createNote(productId, 'Legacy');
+    // Simulate a pre-feature row with no recorded author.
+    ctx.db.prepare('UPDATE notes SET author_id = NULL WHERE id = ?').run(note.id);
+
+    const res = await putNote(`/api/notes/${note.id}`, { content: 'Hijacked' });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'You can only edit your own notes' });
+
+    const stored = await ctx.api.get(`/api/products/${productId}/notes`).expect(200);
+    expect(stored.body).toEqual([{ ...note, author: null }]);
+  });
+});
+
+// Task 4.2 — Property 1: An author can update the content of their own note.
+// Feature: notes-edit-auth, Property 1: An author can update the content of their own note
+// Validates: Requirements 2.1
+describe('PUT /api/notes/:id property: author self-edit (Requirement 2.1)', () => {
+  it('lets an author update their own note to any valid content', async () => {
+    // A valid replacement content is 1..5000 characters after trimming. Constrain the generator
+    // to strings whose trimmed form is non-empty and within the limit so every input is accepted.
+    const validContent = fc
+      .string({ minLength: 1, maxLength: 5000 })
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 1 && s.length <= 5000);
+
+    await fc.assert(
+      fc.asyncProperty(validContent, async (content) => {
+        const auth = await ctx.authHeader();
+        const created = await ctx.api
+          .post(`/api/products/${productId}/notes`)
+          .set(auth)
+          .send({ content: 'seed' })
+          .expect(201);
+        const note = created.body as { id: number; author: number };
+
+        const res = await ctx.api.put(`/api/notes/${note.id}`).set(auth).send({ content });
+
+        expect(res.status).toBe(200);
+        expect(res.body.content).toBe(content);
+        expect(res.body.author).toBe(note.author);
+
+        // Read the persisted row back to confirm the content was stored, not just echoed.
+        const row = ctx.db.prepare('SELECT content, author_id FROM notes WHERE id = ?').get(note.id) as {
+          content: string;
+          author_id: number;
+        };
+        expect(row.content).toBe(content);
+        expect(row.author_id).toBe(note.author);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// Task 4.3 — Property 2: A non-author cannot change a note.
+// Feature: notes-edit-auth, Property 2: A non-author cannot change a note
+// Validates: Requirements 2.2
+describe('PUT /api/notes/:id property: non-author rejection (Requirement 2.2)', () => {
+  it('rejects an edit from a different user and leaves the content unchanged', async () => {
+    const validContent = fc
+      .string({ minLength: 1, maxLength: 5000 })
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 1 && s.length <= 5000);
+
+    // Two distinct users: A authors the note, B attempts the edit.
+    await ctx.register('author-a');
+    const tokenA = await ctx.login('author-a');
+    await ctx.register('intruder-b');
+    const tokenB = await ctx.login('intruder-b');
+
+    await fc.assert(
+      fc.asyncProperty(validContent, async (content) => {
+        const created = await ctx.api
+          .post(`/api/products/${productId}/notes`)
+          .set({ Authorization: `Bearer ${tokenA}` })
+          .send({ content: 'original' })
+          .expect(201);
+        const note = created.body as { id: number };
+
+        const res = await ctx.api
+          .put(`/api/notes/${note.id}`)
+          .set({ Authorization: `Bearer ${tokenB}` })
+          .send({ content });
+
+        expect(res.status).toBe(403);
+        expect(res.body).toEqual({ error: 'You can only edit your own notes' });
+
+        const row = ctx.db.prepare('SELECT content FROM notes WHERE id = ?').get(note.id) as { content: string };
+        expect(row.content).toBe('original');
+      }),
+      { numRuns: 100 },
+    );
   });
 });
