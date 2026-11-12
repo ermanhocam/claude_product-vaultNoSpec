@@ -6,6 +6,7 @@ import {
   type Database,
   IN_MEMORY,
   isUniqueConstraintError,
+  migrateFoldedColumns,
   migrateNotesAuthor,
   openDatabase,
 } from '../src/db/database.js';
@@ -256,6 +257,66 @@ describe('Notes author column and migration (notes-edit-auth, Requirements 3.1, 
       author_id: number | null;
     };
     expect(row.author_id).toBeNull();
+  });
+});
+
+describe('Folded search columns and migration', () => {
+  it('fresh databases have name_folded / content_folded columns', () => {
+    const db = open();
+    const productCols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name);
+    const noteCols = db.prepare('PRAGMA table_info(notes)').all().map((c) => c.name);
+    expect(productCols).toContain('name_folded');
+    expect(noteCols).toContain('content_folded');
+  });
+
+  it('populates the folded columns with Unicode case-folded text on write', () => {
+    const db = open();
+    const product = createProductRepository(db).create('Éclair');
+    createNoteRepository(db).create(product.id, 'Great ÉCLAIR', null as unknown as number);
+
+    const p = db.prepare('SELECT name_folded FROM products WHERE id = ?').get(product.id) as { name_folded: string };
+    const n = db.prepare('SELECT content_folded FROM notes WHERE product_id = ?').get(product.id) as {
+      content_folded: string;
+    };
+    expect(p.name_folded).toBe('éclair');
+    expect(n.content_folded).toBe('great éclair');
+  });
+
+  it('backfills a legacy database that predates the folded columns, and re-runs as a no-op', () => {
+    const path = tempDbPath();
+    // Shape a pre-feature database: products/notes without the folded columns.
+    const legacy = open(path);
+    legacy.exec('DROP TABLE notes');
+    legacy.exec('DROP TABLE products');
+    legacy.exec(`
+      CREATE TABLE products (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT    NOT NULL,
+        created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      CREATE TABLE notes (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL REFERENCES products (id) ON DELETE RESTRICT,
+        content    TEXT    NOT NULL,
+        created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+    `);
+    legacy.prepare('INSERT INTO products (id, name) VALUES (1, ?)').run('Éclair');
+    legacy.prepare('INSERT INTO notes (id, product_id, content) VALUES (1, 1, ?)').run('Great ÉCLAIR');
+
+    migrateFoldedColumns(legacy);
+
+    const nameFolded = () =>
+      (legacy.prepare('SELECT name_folded FROM products WHERE id = 1').get() as { name_folded: string }).name_folded;
+    const contentFolded = () =>
+      (legacy.prepare('SELECT content_folded FROM notes WHERE id = 1').get() as { content_folded: string })
+        .content_folded;
+    expect(nameFolded()).toBe('éclair');
+    expect(contentFolded()).toBe('great éclair');
+
+    // Idempotent: a second call changes nothing and does not throw.
+    expect(() => migrateFoldedColumns(legacy)).not.toThrow();
+    expect(nameFolded()).toBe('éclair');
   });
 });
 

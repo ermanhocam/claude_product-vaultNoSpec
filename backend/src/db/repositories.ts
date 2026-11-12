@@ -1,5 +1,5 @@
 import type { SearchCriteria } from '../validation.js';
-import { type Database, transaction } from './database.js';
+import { type Database, foldText, transaction } from './database.js';
 
 export interface Product {
   id: number;
@@ -80,6 +80,8 @@ interface MessageThreadRow {
   partner_username: string;
   last_body: string;
   last_created_at: string;
+  /** Latest message id; used only as a deterministic tiebreaker for thread ordering. */
+  last_id: number;
 }
 
 const toProduct = (row: ProductRow): Product => ({
@@ -128,9 +130,14 @@ export type NoteRepository = ReturnType<typeof createNoteRepository>;
 export type UserRepository = ReturnType<typeof createUserRepository>;
 export type MessageRepository = ReturnType<typeof createMessageRepository>;
 
-/** Escapes the LIKE wildcards so user input is matched literally (paired with ESCAPE '\'). */
+/**
+ * Builds a `LIKE` pattern matching `term` as a substring, case-insensitively and Unicode-aware.
+ * The term is folded with the same `foldText` used to populate the `*_folded` columns, then its
+ * LIKE wildcards are escaped so they match literally (paired with `ESCAPE '\'`). Folding before
+ * escaping is safe: `foldText` never produces `\`, `%` or `_` from other characters.
+ */
 function likeContains(term: string): string {
-  return `%${term.replace(/[\\%_]/g, '\\$&')}%`;
+  return `%${foldText(term).replace(/[\\%_]/g, '\\$&')}%`;
 }
 
 /** The day after `date` (YYYY-MM-DD) at UTC midnight, as an ISO string — an exclusive upper bound. */
@@ -150,7 +157,8 @@ function buildSearchQuery(criteria: SearchCriteria): { where: string; params: un
   const params: unknown[] = [];
 
   for (const term of criteria.terms) {
-    clauses.push("p.name LIKE ? ESCAPE '\\'");
+    // Match the Unicode-folded copy so "éclair" finds a stored "Éclair"; the term is folded too.
+    clauses.push("p.name_folded LIKE ? ESCAPE '\\'");
     params.push(likeContains(term));
   }
   if (criteria.createdFrom !== undefined) {
@@ -163,8 +171,8 @@ function buildSearchQuery(criteria: SearchCriteria): { where: string; params: un
     params.push(startOfNextDay(criteria.createdTo));
   }
   if (criteria.noteText !== undefined) {
-    // A product matches when at least one of its notes contains the text.
-    clauses.push("EXISTS (SELECT 1 FROM notes n WHERE n.product_id = p.id AND n.content LIKE ? ESCAPE '\\')");
+    // A product matches when at least one of its notes contains the text (Unicode case-insensitive).
+    clauses.push("EXISTS (SELECT 1 FROM notes n WHERE n.product_id = p.id AND n.content_folded LIKE ? ESCAPE '\\')");
     params.push(likeContains(criteria.noteText));
   }
   if (criteria.author !== undefined) {
@@ -179,7 +187,7 @@ function buildSearchQuery(criteria: SearchCriteria): { where: string; params: un
 }
 
 export function createProductRepository(db: Database) {
-  const insert = db.prepare(`INSERT INTO products (name) VALUES (?) RETURNING ${PRODUCT_COLUMNS}`);
+  const insert = db.prepare(`INSERT INTO products (name, name_folded) VALUES (?, ?) RETURNING ${PRODUCT_COLUMNS}`);
   // `id` breaks ties between rows created within the same millisecond.
   const selectAll = db.prepare(`SELECT ${PRODUCT_COLUMNS} FROM products ORDER BY created_at DESC, id DESC`);
   const selectById = db.prepare(`SELECT ${PRODUCT_COLUMNS} FROM products WHERE id = ?`);
@@ -193,7 +201,7 @@ export function createProductRepository(db: Database) {
 
   return {
     create(name: string): Product {
-      return toProduct(insert.get(name) as unknown as ProductRow);
+      return toProduct(insert.get(name, foldText(name)) as unknown as ProductRow);
     },
 
     findAll(): Product[] {
@@ -229,18 +237,18 @@ export function createProductRepository(db: Database) {
 
 export function createNoteRepository(db: Database) {
   const insert = db.prepare(
-    `INSERT INTO notes (product_id, content, author_id) VALUES (?, ?, ?) RETURNING ${NOTE_COLUMNS}`,
+    `INSERT INTO notes (product_id, content, content_folded, author_id) VALUES (?, ?, ?, ?) RETURNING ${NOTE_COLUMNS}`,
   );
   const selectById = db.prepare(`SELECT ${NOTE_COLUMNS} FROM notes WHERE id = ?`);
   const selectByProduct = db.prepare(
     `SELECT ${NOTE_COLUMNS} FROM notes WHERE product_id = ? ORDER BY created_at DESC, id DESC`,
   );
-  const update = db.prepare(`UPDATE notes SET content = ? WHERE id = ? RETURNING ${NOTE_COLUMNS}`);
+  const update = db.prepare(`UPDATE notes SET content = ?, content_folded = ? WHERE id = ? RETURNING ${NOTE_COLUMNS}`);
   const remove = db.prepare('DELETE FROM notes WHERE id = ?');
 
   return {
     create(productId: number, content: string, authorId: number): Note {
-      return toNote(insert.get(productId, content, authorId) as unknown as NoteRow);
+      return toNote(insert.get(productId, content, foldText(content), authorId) as unknown as NoteRow);
     },
 
     findById(id: number): Note | undefined {
@@ -254,7 +262,7 @@ export function createNoteRepository(db: Database) {
 
     /** Returns the updated note, or `undefined` if no note has that id. */
     update(id: number, content: string): Note | undefined {
-      const row = update.get(content, id) as unknown as NoteRow | undefined;
+      const row = update.get(content, foldText(content), id) as unknown as NoteRow | undefined;
       return row && toNote(row);
     },
 
@@ -311,6 +319,12 @@ export function createMessageRepository(db: Database) {
   );
   // The other party in each of the caller's threads, most-recently-active first, with the latest
   // message body and time. `partner_id` is whichever side of the row isn't the caller.
+  // Plain positional `?` placeholders (bound four times, once each) rather than numbered `?1`:
+  // node:sqlite before the fix for nodejs/node#59340 misclassifies `?1` as a *named* parameter,
+  // so positional binding to it throws "column index out of range" on Node 22.13–22.1x — within
+  // this project's `engines` range. `?` avoids that entirely and matches every other query here.
+  // `last_id` is carried out so the outer sort has a deterministic tiebreaker when two threads'
+  // latest messages share a millisecond.
   const selectThreads = db.prepare(
     `SELECT
         partner_id,
@@ -319,18 +333,19 @@ export function createMessageRepository(db: Database) {
         last_created_at
        FROM (
          SELECT
-           CASE WHEN sender_id = ?1 THEN recipient_id ELSE sender_id END AS partner_id,
+           CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS partner_id,
            body AS last_body,
            created_at AS last_created_at,
+           id AS last_id,
            ROW_NUMBER() OVER (
-             PARTITION BY CASE WHEN sender_id = ?1 THEN recipient_id ELSE sender_id END
+             PARTITION BY CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END
              ORDER BY created_at DESC, id DESC
            ) AS rn
          FROM messages
-         WHERE sender_id = ?1 OR recipient_id = ?1
+         WHERE sender_id = ? OR recipient_id = ?
        )
        WHERE rn = 1
-       ORDER BY last_created_at DESC`,
+       ORDER BY last_created_at DESC, last_id DESC`,
   );
 
   return {
@@ -347,7 +362,9 @@ export function createMessageRepository(db: Database) {
 
     /** One entry per person the user has a conversation with, most recent activity first. */
     findThreads(userId: number): MessageThread[] {
-      return (selectThreads.all(userId) as unknown as MessageThreadRow[]).map(toMessageThread);
+      return (
+        selectThreads.all(userId, userId, userId, userId) as unknown as MessageThreadRow[]
+      ).map(toMessageThread);
     },
   };
 }

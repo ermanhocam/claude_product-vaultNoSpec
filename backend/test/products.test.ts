@@ -159,6 +159,22 @@ describe('GET /api/products/search (public product search)', () => {
     }
   });
 
+  it('matches names case-insensitively for non-ASCII (Unicode) letters', async () => {
+    const eclair = await ctx.createProduct('Éclair');
+    const strasse = await ctx.createProduct('Straße');
+
+    // SQLite's default LIKE folds only ASCII; the folded shadow column must match accented and
+    // non-Latin case variants in both directions.
+    for (const q of ['éclair', 'ÉCLAIR', 'Éclair']) {
+      const res = await ctx.api.get('/api/products/search').query({ q }).expect(200);
+      expect(res.body).toEqual([eclair]);
+    }
+    for (const q of ['straße', 'STRAßE', 'Straße']) {
+      const res = await ctx.api.get('/api/products/search').query({ q }).expect(200);
+      expect(res.body).toEqual([strasse]);
+    }
+  });
+
   it('requires every whitespace-separated term to match, in any order', async () => {
     const red = await ctx.createProduct('Red wool blanket');
     await ctx.createProduct('Blue cotton blanket');
@@ -358,6 +374,17 @@ describe('GET /api/products/search advanced filters (logged-in only)', () => {
 
       const res = await ctx.api.get('/api/products/search').query({ noteText: 'slow' }).set(auth).expect(200);
       expect(res.body).toEqual([]);
+    });
+
+    it('matches note text case-insensitively for non-ASCII (Unicode) letters', async () => {
+      const auth = await ctx.authHeader();
+      const product = await ctx.createProduct('Café supplies');
+      await createNoteAs(product.id, 'Best ÉCLAIR in town', auth);
+
+      for (const noteText of ['éclair', 'Éclair', 'ÉCLAIR']) {
+        const res = await ctx.api.get('/api/products/search').query({ noteText }).set(auth).expect(200);
+        expect(res.body.map((p: { name: string }) => p.name)).toEqual(['Café supplies']);
+      }
     });
   });
 

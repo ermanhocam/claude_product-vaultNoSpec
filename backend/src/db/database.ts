@@ -8,19 +8,35 @@ export const IN_MEMORY = ':memory:';
 
 // Timestamps are stored as ISO-8601 UTC strings with millisecond precision so they
 // sort lexicographically and can be handed to the client unchanged.
+
+/**
+ * Case-folds `value` for case-insensitive search, Unicode-aware. SQLite's `LIKE` and `lower()`
+ * fold only ASCII A–Z, so "Éclair" and "éclair" would not match; folding in JS instead means
+ * accented and non-Latin text compares case-insensitively. Stored once in a shadow `*_folded`
+ * column at write time and applied to the search term at query time, so both sides use the same
+ * engine. NFC-normalises first so canonically-equivalent spellings of the same string match.
+ */
+export function foldText(value: string): string {
+  return value.normalize('NFC').toLowerCase();
+}
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS products (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT    NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
-    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL CHECK (length(name) BETWEEN 1 AND 255),
+    -- Unicode case-folded copy of name (foldText), kept in sync on write, for case-insensitive search.
+    name_folded TEXT    NOT NULL DEFAULT '',
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
 
   CREATE TABLE IF NOT EXISTS notes (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL REFERENCES products (id) ON DELETE RESTRICT,
-    content    TEXT    NOT NULL CHECK (length(content) BETWEEN 1 AND 10000),
-    author_id  INTEGER          REFERENCES users (id),
-    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id     INTEGER NOT NULL REFERENCES products (id) ON DELETE RESTRICT,
+    content        TEXT    NOT NULL CHECK (length(content) BETWEEN 1 AND 10000),
+    -- Unicode case-folded copy of content (foldText), kept in sync on write, for case-insensitive search.
+    content_folded TEXT    NOT NULL DEFAULT '',
+    author_id      INTEGER          REFERENCES users (id),
+    created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
 
   CREATE INDEX IF NOT EXISTS idx_notes_product_created
@@ -97,6 +113,49 @@ export function migrateNotesAuthor(db: Database): void {
 }
 
 /**
+ * Checks whether `table` has a column named `column`, via `PRAGMA table_info`. Used to make the
+ * additive folded-column migrations idempotent (`node:sqlite` has no "add column if not exists").
+ */
+function hasColumn(db: Database, table: string, column: string): boolean {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return columns.some((c) => c.name === column);
+}
+
+/**
+ * Adds and backfills the `*_folded` search columns on databases created before they existed.
+ * The fresh `CREATE TABLE` already has them, so the `ALTER` only fires on pre-feature databases.
+ * The backfill re-derives each row's folded value in JS (SQLite's `lower()` can't case-fold
+ * non-ASCII), inside a transaction so a crash mid-backfill doesn't leave rows partially folded.
+ * Idempotent: once the column exists the `ALTER` is skipped, and only empty folded values are
+ * backfilled, so re-running costs nothing. A brand-new row's `''` default is corrected on write.
+ */
+export function migrateFoldedColumns(db: Database): void {
+  if (!hasColumn(db, 'products', 'name_folded')) {
+    db.exec("ALTER TABLE products ADD COLUMN name_folded TEXT NOT NULL DEFAULT ''");
+  }
+  if (!hasColumn(db, 'notes', 'content_folded')) {
+    db.exec("ALTER TABLE notes ADD COLUMN content_folded TEXT NOT NULL DEFAULT ''");
+  }
+
+  transaction(db, () => {
+    backfillFolded(db, 'products', 'name', 'name_folded');
+    backfillFolded(db, 'notes', 'content', 'content_folded');
+  });
+}
+
+/** Fills `foldedColumn` from `sourceColumn` (JS-folded) for rows whose folded value is still blank. */
+function backfillFolded(db: Database, table: string, sourceColumn: string, foldedColumn: string): void {
+  const rows = db
+    .prepare(`SELECT id, ${sourceColumn} AS source FROM ${table} WHERE ${foldedColumn} = ''`)
+    .all() as Array<{ id: number; source: string }>;
+  if (rows.length === 0) return;
+  const update = db.prepare(`UPDATE ${table} SET ${foldedColumn} = ? WHERE id = ?`);
+  for (const row of rows) {
+    update.run(foldText(row.source), row.id);
+  }
+}
+
+/**
  * Opens (creating if necessary) the SQLite database at `path` and ensures the
  * schema exists. Safe to call on every startup: no manual migrations needed.
  */
@@ -112,5 +171,6 @@ export function openDatabase(path: string): Database {
   }
   db.exec(SCHEMA);
   migrateNotesAuthor(db);
+  migrateFoldedColumns(db);
   return db;
 }

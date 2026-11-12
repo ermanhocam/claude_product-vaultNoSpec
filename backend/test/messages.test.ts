@@ -169,6 +169,20 @@ describe('GET /api/messages/threads', () => {
     expect(res.body).toEqual([]);
   });
 
+  it('loads without a parameter-binding error (plain ? placeholders, not numbered ?1)', async () => {
+    // Regression guard for nodejs/node#59340: numbered `?1` placeholders are misclassified as
+    // named parameters by node:sqlite on Node 22.13–22.1x (within this project's engines range),
+    // so positional binding to them throws "column index out of range". The threads query must
+    // use plain `?` placeholders. This asserts the endpoint resolves rather than 500s.
+    const alice = await ctx.createUser('alice');
+    const bob = await ctx.createUser('bob');
+    await ctx.api.post(`/api/messages/conversations/${bob.id}`).set(alice.auth).send({ body: 'ping' }).expect(201);
+
+    const res = await ctx.api.get('/api/messages/threads').set(alice.auth).expect(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].partnerUsername).toBe('bob');
+  });
+
   it('summarises each conversation with the latest message, most recent first', async () => {
     const alice = await ctx.createUser('alice');
     const bob = await ctx.createUser('bob');
